@@ -1,0 +1,7 @@
+name = "Workerflow"
+uuid = "35cc5ddd-7890-4ab3-b49b-d7028e71734a"
+authors = ["Scottie Alexander <palexander@lanl.gov>"]
+version = "0.1.0"
+
+[deps]
+DelimitedFiles = "8bb1440f-4735-579b-a4ab-409b98df4dab"
