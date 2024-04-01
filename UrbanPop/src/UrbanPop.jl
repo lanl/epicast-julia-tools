@@ -662,6 +662,19 @@ function write_tract_file(ifile::AbstractString)
 end
 # agent_db % tar cvf - *.bin | zstd -9 - > us-demographics.bin.zst
 # ============================================================================ #
+function read_tract_file(ifile::AbstractString)
+    hash = struct_hash(Tract)
+    return open(ifile, "r") do io
+        current_hash = read(io, 32)
+        @assert(hash == current_hash, "tract struct layout does not match!")
+        n_tract = read(io, UInt64)
+        tract_size = read(io, UInt64)
+        @assert(tract_size == sizeof(Tract), "tract struct size mismatch")
+        
+        return mmap(io, Vector{Tract}, (n_tract,), grow=false, shared=false)
+    end
+end
+# ============================================================================ #
 function naics_lookup(ifo::Dict{String,<:Any}, naics::Integer, ndigit=NAICS_DIGITS)
     naics_str = string(naics)
     if !haskey(ifo, naics_str)
@@ -727,6 +740,78 @@ function tract_list(idir::AbstractString, ofile::AbstractString)
         end
     end
     return total
+end
+# ============================================================================ #
+mutable struct TractMarginals
+    age::Vector{Int}
+    household_size::Vector{Int}
+    n_agent::Int
+    fips_code::Int
+end
+TractMarginals(n, fips) = TractMarginals(zeros(Int, 6), zeros(Int, 20), n, fips)
+# ============================================================================ #
+function age_group(x::Agent)
+    if x.person_age <= 5
+        return 0
+    elseif x.person_age <= 17
+        return 1
+    elseif x.person_age <= 29
+        return 2
+    elseif x.person_age <= 64
+        return 3
+    else # 65+
+        return 4
+    end
+end
+# ============================================================================ #
+function household_size(x::Agent)
+    if x.household_size > 19
+        return 19
+    else
+        return Int(x.household_size)
+    end
+end
+# ============================================================================ #
+function tract_marginals(ifile::AbstractString)
+
+    raw = memmap(ifile)
+
+    out = Dict{Int64,TractMarginals}()
+
+    last_tract = 0
+    n_agent = 0
+
+    for k in 1:length(raw)
+        # tract fips code
+        fips = Int(div(raw[k].fips_code, 10))
+        if fips != last_tract
+            out[fips] = TractMarginals(0, fips)
+            if last_tract > 0
+                out[last_tract].n_agent = n_agent
+                n_agent = 0
+            end
+            last_tract = fips
+        end
+        tmp = out[fips]
+
+        age_index = age_group(raw[k]) + 1
+        tmp.age[age_index] += 1
+
+        hh_id = Int(raw[k].household_id)
+        
+        # add hosuehold size (count of agents per hh size, not hh count)
+        hh_index = household_size(raw[k])
+        tmp.household_size[hh_index] += 1
+
+        n_agent += 1
+    end
+
+    for (k,v) in out
+        out[k].age[end] = sum(out[k].age)
+        out[k].household_size[end] = sum(out[k].household_size)
+    end
+
+    return out
 end
 # ============================================================================ #
 end # module UrbanPop

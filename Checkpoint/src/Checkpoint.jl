@@ -1,6 +1,6 @@
 module Checkpoint
 
-using SHA, Mmap
+using Workerflow, UrbanPop
 
 const IntTuple{N} = NTuple{N,Int32}
 const SPaSMVector = NTuple{3,Float64}
@@ -121,7 +121,7 @@ function Base.show(io::IO, x::CellData)
     println(io, "  hh: ", x.nc_0_HH)
 end
 # ---------------------------------------------------------------------------- #
-function read_checkpoint(ifile::AbstractString)
+function read_checkpoint_file(ifile::AbstractString)
     return open(ifile, "r") do io
         n_community = read(io, UInt64)
         cd_size = read(io, UInt64)
@@ -144,104 +144,67 @@ function read_checkpoint(ifile::AbstractString)
     end
 end
 # ============================================================================ #
-struct_hash(::Type{T}) where T = sha2_256(join(map(string, fieldnames(T))))
-# ---------------------------------------------------------------------------- #
-struct Tract
-    index::UInt64
-    n_agent::UInt64
-    fips_code::UInt64
-end
-# ---------------------------------------------------------------------------- #
-function read_tracts(ifile::AbstractString)
-    hash = struct_hash(Tract)
-    return open(ifile, "r") do io
-        current_hash = read(io, 32)
-        @assert(hash == current_hash, "tract struct layout does not match!")
-        n_tract = read(io, UInt64)
-        tract_size = read(io, UInt64)
-        @assert(tract_size == sizeof(Tract), "tract struct size mismatch")
-        
-        return mmap(io, Vector{Tract}, (n_tract,), grow=false, shared=false)
-    end
-end
-# ---------------------------------------------------------------------------- #
-function read_workerflow(ifile::AbstractString)
-    from, to, n = open(ifile, "r") do io
-        n_tract = read(io, UInt64)
-        n_entry = read(io, UInt64)
-        from = Vector{UInt64}(undef, n_entry)
-        to = Vector{UInt64}(undef, n_entry)
-        n = Vector{UInt32}(undef, n_entry)
-        for k = 1:n_entry
-            from[k] = read(io, UInt64)
-            to[k] = read(io, UInt64)
-            n[k] = read(io, UInt32)
-        end
-        return from, to, n
-    end
-
-    return Dict{Tuple{Int,Int}, Int}((Int(f),Int(t)) => n for (f,t,n) in
-        zip(from,to,n))
-end
-# ---------------------------------------------------------------------------- #
-function get_column(d::Dict{Tuple{Int,Int}, Int}, idx::Integer)
-    col = Dict{Int,Int}()
-    for (k,v) in d
-        if k[2] == idx
-            col[k[1]] = d[k]
-        end
-    end
-    return col
-end
-# ---------------------------------------------------------------------------- #
-function get_row(d::Dict{Tuple{Int,Int}, Int}, idx::Integer)
-    row = Dict{Int,Int}()
-    for (k,v) in d
-        if k[1] == idx
-            row[k[2]] = d[k]
-        end
-    end
-    return row
-end
-# ---------------------------------------------------------------------------- #
-vec_sum(d::Dict{Int,Int}, rm::Integer) = sum(values(d)) - d[rm]
+const N_AGENT_PER_COMMUNITY = 2000
+const CELL_UNUSED = 0xffffffff # marks a community/cell as unused
 # ============================================================================ #
 function community_counts(tr_file::AbstractString, wf_file::AbstractString)
-    tr = read_tracts(tr_file)
-    wf = read_workerflow(wf_file)
+    tr = UrbanPop.read_tract_file(tr_file)
+    wf = Workerflow.read_workerflow_file(wf_file)
 
     n_res = zeros(UInt8, length(tr))
     n_wrk = zeros(UInt8, length(tr))
 
     for k in eachindex(tr)
         fips = Int(tr[k].fips_code)
-        col = get_column(wf, fips)
-        n_res[k] = max(1, round(UInt8, tr[k].n_agent / 2000))
-        n_wrk[k] = isempty(col) ? 0x00 : round(UInt8, vec_sum(col, fips) / 2000)
+        col = Workerflow.get_column(wf, fips)
+        n_res[k] = max(1, round(UInt8, tr[k].n_agent / N_AGENT_PER_COMMUNITY))
+        
+        n_wrk[k] = isempty(col) ? 0x00 :
+            round(UInt8, Workerflow.vec_sum(col, fips) / N_AGENT_PER_COMMUNITY)
     end
 
     return tr, n_res, n_wrk
 end
 # ---------------------------------------------------------------------------- #
-function stats(c::CellData)
+function stats(c::CellData, t::UrbanPop.Tract)
     if c.n_family == 0
-        return (0,1,0)
+        # worker only community
+        return 0x00, 0x01, UrbanPop.TractMarginals(t.n_agent, t.fips_code)
     else
-        return (1, 0, c.nc_0[end])
+        return 0x01, 0x00, UrbanPop.TractMarginals(Int[c.nc_0...], Int[c.nc_0_HH...],
+            t.n_agent, t.fips_code)
     end
 end
 # ---------------------------------------------------------------------------- #
-function checkpoint_community_counts(ck_file::AbstractString)
-    ck = read_checkpoint(ck_file)
-    out = Dict{Int,Tuple{Int,Int,Int}}()
+function Base.:+(a::UrbanPop.TractMarginals, b::UrbanPop.TractMarginals)
+    @assert(a.fips_code == b.fips_code, "FIPS code mismatch")
+    a.age .+= b.age
+    a.household_size .+= b.household_size
+    return a
+end
+# ---------------------------------------------------------------------------- #
+function Base.:(==)(a::UrbanPop.TractMarginals, b::UrbanPop.TractMarginals)
+    return (a.fips_code == b.fips_code) && (a.age == b.age) &&
+        (a.household_size == b.household_size)
+end
+Base.:(!=)(a::UrbanPop.TractMarginals, b::UrbanPop.TractMarginals) = !(a == b)
+# ---------------------------------------------------------------------------- #
+function checkpoint_community_counts(ck_file::AbstractString, tr::Vector{UrbanPop.Tract})
+    ck = read_checkpoint_file(ck_file)
+
+    out = Dict{Int,Tuple{Int,Int,UrbanPop.TractMarginals}}()
+
     for k in eachindex(ck)
-        if ck[k].cell_data.tract != 0xffffffff
-            tract = Int(ck[k].cell_data.tract)
-            cs = stats(ck[k].cell_data)
+        if ck[k].cell_data.tract != CELL_UNUSED
+            idx = Int(ck[k].cell_data.tract)
+            @assert(0 <= idx < length(tr), "Invalid tract idx: $(idx)")
+            n_res, n_wrk, mrgn = stats(ck[k].cell_data, tr[idx + 1])
+            tract = tr[idx + 1].fips_code
             if !haskey(out, tract)
-                out[tract] = cs
+                out[tract] = (n_res, n_wrk, mrgn)
             else
-                out[tract] = out[tract] .+ cs
+                out[tract] = (out[tract][1] + n_res, out[tract][2] + n_wrk,
+                    out[tract][3] + mrgn)
             end
         end
     end
@@ -249,21 +212,29 @@ function checkpoint_community_counts(ck_file::AbstractString)
 end
 # ---------------------------------------------------------------------------- #
 function validate_checkpoint(ck_file::AbstractString, tr_file::AbstractString,
-    wf_file::AbstractString)
+    wf_file::AbstractString, ag_file::AbstractString)
 
     tr, n_res, n_wrk = community_counts(tr_file, wf_file)
 
-    ck = checkpoint_community_counts(ck_file)
+    mrgn = UrbanPop.tract_marginals(ag_file)
 
-    @assert(length(ck) == length(tr), "Mismatch in # of tracts")
+    ck = checkpoint_community_counts(ck_file, tr)
+
+    @assert(length(ck) == length(mrgn), "Mismatch in # of tracts")
+    @assert(keys(ck) == keys(mrgn), "Mismatch in tract FIPS codes")
+
+    fips = getfield.(tr, :fips_code)
 
     n = 0
 
     for k in keys(ck)
-        idx = k + 1
-        tmp = (n_res[idx], n_wrk[idx], Int(tr[idx].n_agent))
+        idx = findfirst(isequal(k), fips)
+
+        tmp = (n_res[idx], n_wrk[idx], mrgn[k])
+        
         if ck[k] != tmp
-            @warn("FAIL - ", idx, " ", Int(tr[idx].fips_code), " - ck = ", ck[k], " db = ", tmp)
+            println("FAIL @ ", k)
+            println("    ck = ", ck[k][3], "\n    db = ", mrgn[k])
             n += 1
         end
     end
