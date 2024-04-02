@@ -617,6 +617,8 @@ struct Tract
     fips_code::UInt64
 end
 # ============================================================================ #
+Base.isless(a::Tract, b::Tract) = a.fips_code < b.fips_code
+# ============================================================================ #
 function write_tract_file(ifile::AbstractString)
     m = match(r".*/(\d{2})\.agents\.bin$", ifile)
 
@@ -749,6 +751,9 @@ mutable struct TractMarginals
     fips_code::Int
 end
 TractMarginals(n, fips) = TractMarginals(zeros(Int, 6), zeros(Int, 20), n, fips)
+function Base.show(io::IO, t::TractMarginals)
+    print(io, t.fips_code, ", ", t.n_agent, ", ", t.age, ", ", t.household_size)
+end
 # ============================================================================ #
 function age_group(x::Agent)
     if x.person_age <= 5

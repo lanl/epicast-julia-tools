@@ -4,6 +4,7 @@ authors = ["Scottie Alexander <palexander@lanl.gov>"]
 version = "0.1.0"
 
 [deps]
+DelimitedFiles = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 UrbanPop = "f3f28a4b-fe4e-413d-beed-473d3cb4e60c"
 Workerflow = "35cc5ddd-7890-4ab3-b49b-d7028e71734a"

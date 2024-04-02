@@ -1,5 +1,6 @@
 module Checkpoint
 
+using DelimitedFiles
 using Workerflow, UrbanPop
 
 const IntTuple{N} = NTuple{N,Int32}
@@ -147,8 +148,43 @@ end
 const N_AGENT_PER_COMMUNITY = 2000
 const CELL_UNUSED = 0xffffffff # marks a community/cell as unused
 # ============================================================================ #
-function community_counts(tr_file::AbstractString, wf_file::AbstractString)
-    tr = UrbanPop.read_tract_file(tr_file)
+function read_epicast_tract_file(tr_file::AbstractString)
+    data = open(tr_file, "r") do io
+        n_tract = tryparse(Int, readline(io))
+        @assert(n_tract != nothing, "failed to parse # of tracts")
+        data = readdlm(io, Int)
+        @assert(size(data, 1) == n_tract, "error reading data, wrong # of tracts")
+        return data
+    end
+
+    tr = Vector{UrbanPop.Tract}(undef, size(data, 1))
+    mrgn = Dict{Int, UrbanPop.TractMarginals}()
+    
+    for k in 1:size(data, 1)
+        fips = data[k,4] * 10^6 + data[k,5]
+        tr[k] = UrbanPop.Tract(
+            0,
+            data[k,2],
+            fips
+        )
+
+        tmp = UrbanPop.TractMarginals(data[k,2], 
+            fips)
+        tmp.age[1:5] .= data[k, 6:10]
+        tmp.age[6] = sum(tmp.age[1:5])
+        tmp.household_size[1:7] .= (data[k, 11:17] .* (1:7))
+        tmp.household_size[20] = sum(tmp.household_size[1:19])
+
+        mrgn[fips] = tmp
+    end
+
+    sort!(tr)
+
+    return tr, mrgn
+end
+# ============================================================================ #
+function community_counts(wf_file::AbstractString, tr::Vector{UrbanPop.Tract})
+    
     wf = Workerflow.read_workerflow_file(wf_file)
 
     n_res = zeros(UInt8, length(tr))
@@ -158,26 +194,28 @@ function community_counts(tr_file::AbstractString, wf_file::AbstractString)
         fips = Int(tr[k].fips_code)
         col = Workerflow.get_column(wf, fips)
         n_res[k] = max(1, round(UInt8, tr[k].n_agent / N_AGENT_PER_COMMUNITY))
-        
-        n_wrk[k] = isempty(col) ? 0x00 :
+
+        n_wrk[k] = (isempty(col) || !haskey(col, fips)) ? 0x00 :
             round(UInt8, Workerflow.vec_sum(col, fips) / N_AGENT_PER_COMMUNITY)
     end
 
-    return tr, n_res, n_wrk
+    return n_res, n_wrk
 end
 # ---------------------------------------------------------------------------- #
 function stats(c::CellData, t::UrbanPop.Tract)
+    n_agent = Int(c.nc_0[end])
     if c.n_family == 0
         # worker only community
-        return 0x00, 0x01, UrbanPop.TractMarginals(t.n_agent, t.fips_code)
+        return 0x00, 0x01, UrbanPop.TractMarginals(n_agent, t.fips_code)
     else
         return 0x01, 0x00, UrbanPop.TractMarginals(Int[c.nc_0...], Int[c.nc_0_HH...],
-            t.n_agent, t.fips_code)
+            n_agent, t.fips_code)
     end
 end
 # ---------------------------------------------------------------------------- #
 function Base.:+(a::UrbanPop.TractMarginals, b::UrbanPop.TractMarginals)
     @assert(a.fips_code == b.fips_code, "FIPS code mismatch")
+    a.n_agent += b.n_agent
     a.age .+= b.age
     a.household_size .+= b.household_size
     return a
@@ -212,12 +250,16 @@ function checkpoint_community_counts(ck_file::AbstractString, tr::Vector{UrbanPo
 end
 # ---------------------------------------------------------------------------- #
 function validate_checkpoint(ck_file::AbstractString, tr_file::AbstractString,
-    wf_file::AbstractString, ag_file::AbstractString)
+    wf_file::AbstractString, ag_file::AbstractString="")
 
-    tr, n_res, n_wrk = community_counts(tr_file, wf_file)
+    if !isempty(ag_file)
+        tr = UrbanPop.read_tract_file(tr_file)
+        mrgn = UrbanPop.tract_marginals(ag_file)
+    else
+        tr, mrgn = read_epicast_tract_file(tr_file)
+    end
 
-    mrgn = UrbanPop.tract_marginals(ag_file)
-
+    n_res, n_wrk = community_counts(wf_file, tr)
     ck = checkpoint_community_counts(ck_file, tr)
 
     @assert(length(ck) == length(mrgn), "Mismatch in # of tracts")
@@ -236,6 +278,13 @@ function validate_checkpoint(ck_file::AbstractString, tr_file::AbstractString,
             println("FAIL @ ", k)
             println("    ck = ", ck[k][3], "\n    db = ", mrgn[k])
             n += 1
+        end
+        # if ck[k][1] != n_res[idx] || ck[k][2] != n_wrk[idx]
+        #     println("FAIL @ ", k, " ", ck[k][1:2], [n_res[idx], n_wrk[idx]])
+        #     n += 1
+        # end
+        if n > 10
+            break
         end
     end
 
