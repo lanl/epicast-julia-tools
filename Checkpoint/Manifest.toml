@@ -2,7 +2,7 @@
 
 julia_version = "1.10.2"
 manifest_format = "2.0"
-project_hash = "ea67c1c908828fcbaeddd1c0c99fc65d1c9af9f0"
+project_hash = "242869f626b4fee614b34ad434e93800b4935245"
 
 [[deps.ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
@@ -106,6 +106,11 @@ version = "1.6.0"
 git-tree-sha1 = "bdb1942cd4c45e3c678fd11569d5cccd80976237"
 uuid = "4e289a0a-7415-4d19-859d-a7e5c4648b56"
 version = "1.0.4"
+
+[[deps.EpicastTypes]]
+path = "../EpicastTypes"
+uuid = "a2acacda-f535-4b80-a6a5-108ca43f7bad"
+version = "0.1.0"
 
 [[deps.ExprTools]]
 git-tree-sha1 = "27415f162e6028e81c72b82ef756bf321213b6ec"

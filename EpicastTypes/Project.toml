@@ -1,0 +1,4 @@
+name = "EpicastTypes"
+uuid = "a2acacda-f535-4b80-a6a5-108ca43f7bad"
+authors = ["Scottie Alexander <palexander@lanl.gov>"]
+version = "0.1.0"

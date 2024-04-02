@@ -744,16 +744,37 @@ function tract_list(idir::AbstractString, ofile::AbstractString)
     return total
 end
 # ============================================================================ #
+function dist_str(x::AbstractVector{T}) where {T<:Real}
+    denom = x[end] != 0 ? x[end] : T(1)
+    return "[" * join(map(n -> @sprintf("%0.2f", n), x[1:end-1] ./ denom), ", ") * "]"
+end
+# ============================================================================ #
 mutable struct TractMarginals
     age::Vector{Int}
     household_size::Vector{Int}
     n_agent::Int
     fips_code::Int
 end
+# ---------------------------------------------------------------------------- #
 TractMarginals(n, fips) = TractMarginals(zeros(Int, 6), zeros(Int, 20), n, fips)
+# ---------------------------------------------------------------------------- #
 function Base.show(io::IO, t::TractMarginals)
-    print(io, t.fips_code, ", ", t.n_agent, ", ", t.age, ", ", t.household_size)
+    print(io, t.fips_code, ", ", t.n_agent, ", ", dist_str(t.age), ", ", dist_str(t.household_size))
 end
+# ---------------------------------------------------------------------------- #
+function Base.:+(a::UrbanPop.TractMarginals, b::UrbanPop.TractMarginals)
+    @assert(a.fips_code == b.fips_code, "FIPS code mismatch")
+    a.n_agent += b.n_agent
+    a.age .+= b.age
+    a.household_size .+= b.household_size
+    return a
+end
+# ---------------------------------------------------------------------------- #
+function Base.:(==)(a::UrbanPop.TractMarginals, b::UrbanPop.TractMarginals)
+    return (a.fips_code == b.fips_code) && (a.age == b.age) &&
+        (a.household_size == b.household_size)
+end
+Base.:(!=)(a::UrbanPop.TractMarginals, b::UrbanPop.TractMarginals) = !(a == b)
 # ============================================================================ #
 function age_group(x::Agent)
     if x.person_age <= 5

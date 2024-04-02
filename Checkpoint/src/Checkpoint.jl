@@ -1,140 +1,26 @@
 module Checkpoint
 
-using DelimitedFiles
-using Workerflow, UrbanPop
+using DelimitedFiles, Dates
+using Workerflow, UrbanPop, EpicastTypes
 
-const IntTuple{N} = NTuple{N,Int32}
-const SPaSMVector = NTuple{3,Float64}
-const SPaSMIVector = NTuple{3,Int32}
 # ============================================================================ #
-function init_zero(x::T) where T
-    Base.memset(pointer_from_objref(x), 0, sizeof(T))
-    return x
-end
-# ---------------------------------------------------------------------------- #
-struct CellData
-    tract::UInt32
-    community::UInt32
-    n_workgroup::UInt32
-    n_family::UInt32
+const N_AGENT_PER_COMMUNITY = 2000
+const CELL_UNUSED = 0xffffffff # marks a community/cell as unused
+# ============================================================================ #
+function read_checkpoint_file(::Type{C}, ::Type{P}, ifile::AbstractString) where {C<:AbstractCellData, P<:AbstractParticle}
 
-    nc_0::IntTuple{6}
-    nc_0_race::IntTuple{8}
-    nc_0_ethnicity::IntTuple{3}
-    nc_0_HH::IntTuple{20}
-    nc_tot::IntTuple{6}
-    nc_tot_race::IntTuple{8}
-    nc_tot_ethnicity::IntTuple{3}
-    nc_tot_HH::IntTuple{20}
-    nc_ill::IntTuple{6}
-    nc_ill_race::IntTuple{8}
-    nc_ill_ethnicity::IntTuple{3}
-
-    nc_tot2::IntTuple{6}
-    nc_tot2_race::IntTuple{8}
-    nc_tot2_ethnicity::IntTuple{3}
-    nc_ill2::IntTuple{6}
-    nc_ill2_race::IntTuple{8}
-    nc_ill2_ethnicity::IntTuple{3}
-    nc_hosp::IntTuple{6}
-    nc_icu::IntTuple{6}
-    nc_vent::IntTuple{6}
-    nc_dead::IntTuple{6}
-
-    inf_source::NTuple{12,UInt16}
-
-    work_scale::Float64
-    social_scale::Float64
-    travel_scale::Float64
-    bus_open::Float64
-
-    schools_open::UInt8
-
-end
-# ---------------------------------------------------------------------------- #
-struct Particle
-    type::Int32
-    tag::Int32
-
-    r::SPaSMVector
-
-    home::SPaSMIVector
-    work::SPaSMIVector
-    travel::SPaSMIVector
-
-    trip_timer::UInt8
-    nbor_all::UInt8
-    nborhood::UInt8
-    workgroup::UInt8
-
-    small_workgroup::Int8
-
-    naics_code::UInt16
-    family::UInt16
-    status::UInt16
-
-    hh_size::UInt8
-    vacc_tier::UInt8
-    vacc_timer::UInt8
-
-    treatment_timer::Int8
-    school::Int8
-    race::Int8
-    ethnicity::Int8
-    employment::Int8
-
-    strain2::UInt8
-
-    prob::NTuple{2,Float64}
-
-    p_family::Float64
-    p_school::Float64
-    p_work::Float64
-    p_nc::Float64
-    p_hood::Float64
-    p_bar::Float64
-    p_school_mix::Float64
-    p_bc::Float64
-
-end
-# ---------------------------------------------------------------------------- #
-Base.zero(::Type{NTuple{N,T}}) where {N,T} = tuple(zeros(T, N)...)
-
-init_struct(::Type{T}) where T = T(zero.(fieldtypes(T))...)
-# ---------------------------------------------------------------------------- #
-mutable struct Community
-    cell_data::CellData
-    particles::Vector{Particle}
-end
-# ---------------------------------------------------------------------------- #
-function Community(n_agent::Integer)
-    return Community(
-        init_struct(CellData),
-        map(x -> init_struct(Particle), 1:n_agent)
-    )
-end
-# ---------------------------------------------------------------------------- #
-function Base.show(io::IO, x::CellData)
-    println(io, "tract: ", Int(x.tract), ", comm: ", Int(x.community),
-        ", nwg: ", Int(x.n_workgroup), ", nfam: ", Int(x.n_family))
-    println(io, "  age: ", x.nc_0, ", race: ", x.nc_0_race,
-        ", eth: ", x.nc_0_ethnicity)
-    println(io, "  hh: ", x.nc_0_HH)
-end
-# ---------------------------------------------------------------------------- #
-function read_checkpoint_file(ifile::AbstractString)
     return open(ifile, "r") do io
         n_community = read(io, UInt64)
         cd_size = read(io, UInt64)
         pt_size = read(io, UInt64)
 
-        @assert(cd_size == sizeof(CellData))
-        @assert(pt_size == sizeof(Particle))
+        @assert(cd_size == sizeof(C), "$(cd_size) != $(sizeof(C))")
+        @assert(pt_size == sizeof(P))
 
-        data = Vector{Community}(undef, n_community)
+        data = Vector{Community{C,P}}(undef, n_community)
         for k = 1:n_community
             n_agent = read(io, UInt64)
-            data[k] = Community(n_agent)
+            data[k] = Community(C, P, n_agent)
             ref = Ref(data[k].cell_data)
             read!(io, ref)
             data[k].cell_data = ref[]
@@ -145,10 +31,13 @@ function read_checkpoint_file(ifile::AbstractString)
     end
 end
 # ============================================================================ #
-const N_AGENT_PER_COMMUNITY = 2000
-const CELL_UNUSED = 0xffffffff # marks a community/cell as unused
+function read_epicast_tract_file(tr_file::AbstractString, ::Val{true})
+    tr, mrgn = read_epicast_tract_file(tr_file, Val(false))
+    sort!(tr)
+    return tr, mrgn
+end
 # ============================================================================ #
-function read_epicast_tract_file(tr_file::AbstractString)
+function read_epicast_tract_file(tr_file::AbstractString, ::Val{false})
     data = open(tr_file, "r") do io
         n_tract = tryparse(Int, readline(io))
         @assert(n_tract != nothing, "failed to parse # of tracts")
@@ -178,8 +67,6 @@ function read_epicast_tract_file(tr_file::AbstractString)
         mrgn[fips] = tmp
     end
 
-    sort!(tr)
-
     return tr, mrgn
 end
 # ============================================================================ #
@@ -201,7 +88,7 @@ function community_counts(wf_file::AbstractString, tr::Vector{UrbanPop.Tract})
 
     return n_res, n_wrk
 end
-# ---------------------------------------------------------------------------- #
+# ============================================================================ #
 function stats(c::CellData, t::UrbanPop.Tract)
     n_agent = Int(c.nc_0[end])
     if c.n_family == 0
@@ -213,22 +100,22 @@ function stats(c::CellData, t::UrbanPop.Tract)
     end
 end
 # ---------------------------------------------------------------------------- #
-function Base.:+(a::UrbanPop.TractMarginals, b::UrbanPop.TractMarginals)
-    @assert(a.fips_code == b.fips_code, "FIPS code mismatch")
-    a.n_agent += b.n_agent
-    a.age .+= b.age
-    a.household_size .+= b.household_size
-    return a
+function stats(c::CellDataOrig, t::UrbanPop.Tract)
+    n_agent = Int(c.nc_0[end])
+    if c.n_family == 0
+        # worker only community
+        return 0x00, 0x01, UrbanPop.TractMarginals(n_agent, t.fips_code)
+    else
+        return 0x01, 0x00, UrbanPop.TractMarginals(Int[c.nc_0...], zeros(Int, 20),
+            n_agent, t.fips_code)
+    end
 end
-# ---------------------------------------------------------------------------- #
-function Base.:(==)(a::UrbanPop.TractMarginals, b::UrbanPop.TractMarginals)
-    return (a.fips_code == b.fips_code) && (a.age == b.age) &&
-        (a.household_size == b.household_size)
-end
-Base.:(!=)(a::UrbanPop.TractMarginals, b::UrbanPop.TractMarginals) = !(a == b)
-# ---------------------------------------------------------------------------- #
-function checkpoint_community_counts(ck_file::AbstractString, tr::Vector{UrbanPop.Tract})
-    ck = read_checkpoint_file(ck_file)
+# ============================================================================ #
+function checkpoint_community_counts(ck_file::AbstractString,
+    tr::Vector{UrbanPop.Tract}, ::Val{B}) where {B}
+
+    C, P = B ? (CellData, Particle) : (CellDataOrig, ParticleOrig)
+    ck = read_checkpoint_file(C, P, ck_file)
 
     out = Dict{Int,Tuple{Int,Int,UrbanPop.TractMarginals}}()
 
@@ -248,45 +135,113 @@ function checkpoint_community_counts(ck_file::AbstractString, tr::Vector{UrbanPo
     end
     return out
 end
-# ---------------------------------------------------------------------------- #
+# ============================================================================ #
+function print_difference(io::IO, s::Set)
+    if !isempty(s)
+        println(io, collect(s))
+    end
+end
+# ============================================================================ #
+function compare_checkpoints(ck1::AbstractString, ck2::AbstractString,
+    tr1::AbstractString, tr2::AbstractString, ::Val{B1}, ::Val{B2}) where {B1,B2}
+
+    t1, _ = read_epicast_tract_file(tr1, Val(B1))
+    t2, _ = read_epicast_tract_file(tr2, Val(B2))
+
+    c1 = checkpoint_community_counts(ck1, t1, Val(B1))
+    c2 = checkpoint_community_counts(ck2, t2, Val(B2))
+
+    keys_use = intersect(keys(c1), keys(c2))
+
+    @info("# of tracts in common = $(length(keys_use))")
+
+    n = 0
+
+    ofile = joinpath(@__DIR__, "..", "..",
+        Dates.format(Dates.now(), "YYYYmmdd_HHMMSS") * "-compare_checkpoint.log")
+
+    io = open(ofile, "w")
+
+    println(io, "# checkpoint 1: \"$(ck1)\"")
+    println(io, "# checkpoint 2: \"$(ck2)\"")
+
+    for k in keys_use
+        if c1[k] != c2[k]
+            println(io, k)
+            if c1[k][1] != c2[k][1] || c1[k][2] != c2[k][2]
+                println(io, "    c1: ", c1[k][1:2], ", c2: ", c2[k][1:2])
+            end
+            println(io, "    c1: ", c1[k][3], "\n    c2: ", c2[k][3])
+            n += 1
+        end
+    end
+
+    println(io, "# in checkpoint 1 but not 2:")
+    print_difference(io, setdiff(keys(c1), keys(c2)))
+    println(io, "# in checkpoint 2 but not 1:")
+    print_difference(io, setdiff(keys(c2), keys(c1)))
+
+    close(io)
+
+    return n
+end
+# ============================================================================ #
 function validate_checkpoint(ck_file::AbstractString, tr_file::AbstractString,
-    wf_file::AbstractString, ag_file::AbstractString="")
+    wf_file::AbstractString, ag_file::AbstractString="", ::Val{B}=Val{true}) where {B}
 
     if !isempty(ag_file)
         tr = UrbanPop.read_tract_file(tr_file)
         mrgn = UrbanPop.tract_marginals(ag_file)
     else
-        tr, mrgn = read_epicast_tract_file(tr_file)
+        tr, mrgn = read_epicast_tract_file(tr_file, Val(B))
     end
 
     n_res, n_wrk = community_counts(wf_file, tr)
-    ck = checkpoint_community_counts(ck_file, tr)
 
-    @assert(length(ck) == length(mrgn), "Mismatch in # of tracts")
-    @assert(keys(ck) == keys(mrgn), "Mismatch in tract FIPS codes")
+    if B
+        ck = checkpoint_community_counts(CellData, Particle, ck_file, tr)
+    else
+        ck = checkpoint_community_counts(CellDataOrig, ParticleOrig, ck_file, tr)
+    end
+
+    keys_use = intersect(keys(ck), keys(mrgn))
+    if length(ck) != length(mrgn)
+        @warn("Mismatch in # of tracts, $(length(ck)) vs. $(length(mrgn))")
+    elseif keys(ck) != keys(mrgn)
+        @warn("Mismatch in tract FIPS codes")
+    end
 
     fips = getfield.(tr, :fips_code)
 
     n = 0
 
-    for k in keys(ck)
+    ofile = joinpath(@__DIR__, "..", "..",
+        Dates.format(Dates.now(), "YYYYmmdd_HHMMSS") * "-validate_checkpoint.log")
+
+    io = open(ofile, "w")
+
+    for k in keys_use
         idx = findfirst(isequal(k), fips)
 
         tmp = (n_res[idx], n_wrk[idx], mrgn[k])
         
         if ck[k] != tmp
-            println("FAIL @ ", k)
-            println("    ck = ", ck[k][3], "\n    db = ", mrgn[k])
+            println(io, k)
+            if ck[k][1] != n_res[idx] || ck[k][2] != n_wrk[idx]
+                println(io, "    (n_res, n_wrk) - ck: ", ck[k][1:2], ", db: ",
+                    Int[n_res[idx], n_wrk[idx]])
+            end
+            println(io, "    ck: ", ck[k][3], "\n    db: ", mrgn[k])
             n += 1
         end
-        # if ck[k][1] != n_res[idx] || ck[k][2] != n_wrk[idx]
-        #     println("FAIL @ ", k, " ", ck[k][1:2], [n_res[idx], n_wrk[idx]])
-        #     n += 1
-        # end
-        if n > 10
-            break
-        end
     end
+
+    println(io, "# in checkpoint but not database:")
+    print_difference(io, setdiff(keys(ck), keys(mrgn)))
+    println(io, "# in database but not checkpoint:")
+    print_difference(io, setdiff(keys(mrgn), keys(ck)))
+
+    close(io)
 
     if n == 0
         @info("SUCCESS - it appears that the test passed...")
@@ -298,6 +253,6 @@ end
 end
 #=
 TODO:
-    1) compare age and household distributions from DB vs CK (at the tract level?)
-    2) could also compate race, ethnicity, etc. distributions for v2
+    * [x] compare age and household distributions from DB vs CK (at the tract level?)
+    * [ ] could also compare race, ethnicity, etc. distributions for v2
 =#
