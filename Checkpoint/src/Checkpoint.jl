@@ -7,19 +7,61 @@ using Workerflow, UrbanPop, EpicastTypes
 const N_AGENT_PER_COMMUNITY = 2000
 const CELL_UNUSED = 0xffffffff # marks a community/cell as unused
 # ============================================================================ #
+struct CheckpointHeader
+    n_cell::UInt64
+    n_comm::UInt32
+    n_agent_per_comm::UInt32
+    n_processor::UInt16
+    celldata_size::UInt16
+    particle_size::UInt16
+    parameters_size::UInt16
+end
+CheckpointHeader() = CheckpointHeader(0,0,0,0,0,0,0)
+
+read_checkpoint_file(ifile::AbstractString) = read_checkpoint_file(CellData, Particle, ifile)
+
 function read_checkpoint_file(::Type{C}, ::Type{P}, ifile::AbstractString) where {C<:AbstractCellData, P<:AbstractParticle}
 
     return open(ifile, "r") do io
-        n_community = read(io, UInt64)
-        cd_size = read(io, UInt64)
-        pt_size = read(io, UInt64)
+        ref = Ref(CheckpointHeader())
+        read!(io, ref)
+        hdr = ref[]
 
-        @assert(cd_size == sizeof(C), "$(cd_size) != $(sizeof(C))")
-        @assert(pt_size == sizeof(P))
+        @assert(hdr.celldata_size == sizeof(C), "$(hdr.celldata_size) != $(sizeof(C))")
+        @assert(hdr.particle_size == sizeof(P))
 
-        data = Vector{Community{C,P}}(undef, n_community)
-        for k = 1:n_community
+        seek(io, position(io) + hdr.parameters_size)
+
+        rng_state = Vector{UInt64}(undef, hdr.n_processor)
+        read!(io, rng_state)
+
+        # @show(Int.(rng_state))
+
+        # cell_offset = Vector{UInt64}(undef, hdr.n_cell);
+        # read!(io, cell_offset)
+        # first_block = cell_offset[1]
+        first_block = read(io, UInt64)
+        
+        # @show(Int(first_block))
+
+        seek(io, first_block)
+
+        # n_agent = read(io, UInt64)
+        # @show(Int(n_agent))
+        # tmp = Community(C, P, n_agent)
+        # ref = Ref(tmp.cell_data)
+        # read!(io, ref)
+        # tmp.cell_data = ref[]
+        # read!(io, tmp.particles)
+        # return tmp
+
+        data = Vector{Community{C,P}}(undef, hdr.n_cell)
+        for k = 1:hdr.n_cell
             n_agent = read(io, UInt64)
+            if n_agent > 10000
+                @show(Int(n_agent))
+                continue
+            end
             data[k] = Community(C, P, n_agent)
             ref = Ref(data[k].cell_data)
             read!(io, ref)
