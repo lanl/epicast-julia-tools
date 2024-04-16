@@ -40,7 +40,7 @@ function check_communities(c::Vector{Community{A,B}}) where {A,B}
                 (c[k].cell_data.n_family == 0 && length(c[k].particles) > 0)
             
             print(c[k].cell_data)
-            println("  n_agent: $(length(c[k].particles))")
+            println("  n_agent: $(length(c[k].particles)), k = $(k)")
         end
     end
 end
@@ -74,7 +74,7 @@ function read_checkpoint_file(::Type{C}, ::Type{P}, ifile::AbstractString) where
             println(Int.(reinterpret(NTuple{4,UInt16}, x)))
         end
 
-        # cell_offsets = Vector{UInt64}(undef, hdr.n_cell);
+        # cell_offsets = Vector{UInt64}(undef, hdr.n_comm);
         # read!(io, cell_offsets)
         # # return Int.(cell_offsets)
 
@@ -94,8 +94,8 @@ function read_checkpoint_file(::Type{C}, ::Type{P}, ifile::AbstractString) where
         # read!(io, tmp.particles)
         # return tmp
 
-        data = Vector{Community{C,P}}(undef, hdr.n_cell)
-        for k = 1:hdr.n_cell
+        data = Vector{Community{C,P}}(undef, hdr.n_comm)
+        for k = 1:hdr.n_comm
             n_agent = read(io, UInt64)
             if n_agent > 10000
                 @show(Int(n_agent))
