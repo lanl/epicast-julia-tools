@@ -11,15 +11,42 @@ struct CheckpointHeader
     n_cell::UInt64
     n_comm::UInt32
     n_agent_per_comm::UInt32
+    n_tract::UInt32
     n_processor::UInt16
     celldata_size::UInt16
     particle_size::UInt16
     parameters_size::UInt16
+    tract_size::UInt16
+    urbanpop_version::UInt16
 end
-CheckpointHeader() = CheckpointHeader(0,0,0,0,0,0,0)
-
+CheckpointHeader() = CheckpointHeader(0,0,0,0,0,0,0,0,0,0)
+function Base.show(io::IO, x::CheckpointHeader)
+    println(io, Int(x.n_cell), ", ", Int(x.n_comm), ", ",
+        Int(x.n_agent_per_comm), ", ", Int(x.n_tract), ", ", Int(x.n_processor))
+end
+# ============================================================================ #
+function remove_unused!(c::Vector{Community{A,B}}) where {A,B}
+    return filter!(c) do x
+        return x.cell_data.tract != CELL_UNUSED && x.cell_data.community != CELL_UNUSED
+    end
+end
+# ============================================================================ #
+function check_communities(c::Vector{Community{A,B}}) where {A,B}
+    for k in eachindex(c)
+        tr = Int(c[k].cell_data.tract)
+        cm = Int(c[k].cell_data.community)
+        if (c[k].cell_data.n_family > length(c[k].particles)) ||
+                (k > 1 && (tr == 0 || cm == 0)) ||
+                (c[k].cell_data.n_family == 0 && length(c[k].particles) > 0)
+            
+            print(c[k].cell_data)
+            println("  n_agent: $(length(c[k].particles))")
+        end
+    end
+end
+# ============================================================================ #
 read_checkpoint_file(ifile::AbstractString) = read_checkpoint_file(CellData, Particle, ifile)
-
+# ---------------------------------------------------------------------------- #
 function read_checkpoint_file(::Type{C}, ::Type{P}, ifile::AbstractString) where {C<:AbstractCellData, P<:AbstractParticle}
 
     return open(ifile, "r") do io
@@ -29,20 +56,32 @@ function read_checkpoint_file(::Type{C}, ::Type{P}, ifile::AbstractString) where
 
         @assert(hdr.celldata_size == sizeof(C), "$(hdr.celldata_size) != $(sizeof(C))")
         @assert(hdr.particle_size == sizeof(P))
+        @assert(hdr.tract_size == sizeof(UrbanPop.Tract))
+        @assert(hdr.urbanpop_version == 2)
+
+        println(hdr)
 
         seek(io, position(io) + hdr.parameters_size)
+
+        tracts = Vector{UrbanPop.Tract}(undef, hdr.n_tract)
+
+        read!(io, tracts)
 
         rng_state = Vector{UInt64}(undef, hdr.n_processor)
         read!(io, rng_state)
 
-        # @show(Int.(rng_state))
+        foreach(rng_state) do x
+            println(Int.(reinterpret(NTuple{4,UInt16}, x)))
+        end
 
-        # cell_offset = Vector{UInt64}(undef, hdr.n_cell);
-        # read!(io, cell_offset)
-        # first_block = cell_offset[1]
+        # cell_offsets = Vector{UInt64}(undef, hdr.n_cell);
+        # read!(io, cell_offsets)
+        # # return Int.(cell_offsets)
+
+        # first_block = cell_offsets[1]
         first_block = read(io, UInt64)
         
-        # @show(Int(first_block))
+        @show(Int(first_block))
 
         seek(io, first_block)
 

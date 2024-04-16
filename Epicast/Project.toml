@@ -1,0 +1,8 @@
+name = "Epicast"
+uuid = "cbb96616-a3d1-4d5e-a40b-9319cdaf6efd"
+authors = ["Scottie Alexander <palexander@lanl.gov>"]
+version = "0.1.0"
+
+[deps]
+DelimitedFiles = "8bb1440f-4735-579b-a4ab-409b98df4dab"
+PyPlot = "d330b81b-6aea-500a-939a-2ce795aea3ee"

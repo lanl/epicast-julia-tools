@@ -193,5 +193,13 @@ function Base.show(io::IO, x::CellDataOrig)
         ", nwg: ", Int(x.n_workgroup), ", nfam: ", Int(x.n_family))
     println(io, "  age: ", x.nc_0)
 end
+# ---------------------------------------------------------------------------- #
+function Base.:(==)(a::CellData, b::CellData)
+    return a.tract == b.tract && a.community == b.community &&
+        a.nc_0 == b.nc_0 && a.nc_0_HH == b.nc_0_HH
+end
+function Base.:(==)(a::Community, b::Community)
+    return a.cell_data == b.cell_data && a.particles == b.particles
+end
 # ============================================================================ #
 end
