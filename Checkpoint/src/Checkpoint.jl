@@ -9,9 +9,12 @@ const CELL_UNUSED = 0xffffffff # marks a community/cell as unused
 # ============================================================================ #
 struct CheckpointHeader
     n_cell::UInt64
-    n_comm::UInt32
+    n_comm::UInt64
+
     n_agent_per_comm::UInt32
     n_tract::UInt32
+    n_hub::UInt32
+
     n_processor::UInt16
     celldata_size::UInt16
     particle_size::UInt16
@@ -19,10 +22,11 @@ struct CheckpointHeader
     tract_size::UInt16
     urbanpop_version::UInt16
 end
-CheckpointHeader() = CheckpointHeader(0,0,0,0,0,0,0,0,0,0)
+CheckpointHeader() = CheckpointHeader(0,0,0,0,0,0,0,0,0,0,0)
 function Base.show(io::IO, x::CheckpointHeader)
     println(io, Int(x.n_cell), ", ", Int(x.n_comm), ", ",
-        Int(x.n_agent_per_comm), ", ", Int(x.n_tract), ", ", Int(x.n_processor))
+        Int(x.n_agent_per_comm), ", ", Int(x.n_tract), ", ", Int(x.n_hub),
+        ", ", Int(x.n_processor))
 end
 # ============================================================================ #
 function remove_unused!(c::Vector{Community{A,B}}) where {A,B}
@@ -45,11 +49,20 @@ function check_communities(c::Vector{Community{A,B}}) where {A,B}
     end
 end
 # ============================================================================ #
+function is_approx_equal(d1::Vector{Community{A,B}}, d2::Vector{Community{A,B}})  where {A,B}
+    tmp = map(d1, d2) do a,b
+        return a.cell_data == b.cell_data && length(a.particles) == length(b.particles)
+    end
+    
+    return all(tmp)
+end
+# ============================================================================ #
 read_checkpoint_file(ifile::AbstractString) = read_checkpoint_file(CellData, Particle, ifile)
 # ---------------------------------------------------------------------------- #
 function read_checkpoint_file(::Type{C}, ::Type{P}, ifile::AbstractString) where {C<:AbstractCellData, P<:AbstractParticle}
 
     return open(ifile, "r") do io
+        seek(io, sizeof(Int64))
         ref = Ref(CheckpointHeader())
         read!(io, ref)
         hdr = ref[]
@@ -63,10 +76,25 @@ function read_checkpoint_file(::Type{C}, ::Type{P}, ifile::AbstractString) where
 
         seek(io, position(io) + hdr.parameters_size)
 
-        tracts = Vector{UrbanPop.Tract}(undef, hdr.n_tract)
+        # tract data block
+        # tracts = Vector{UrbanPop.Tract}(undef, hdr.n_tract)
+        # read!(io, tracts)
+        seek(io, position(io) + hdr.n_tract * sizeof(UrbanPop.Tract))
 
-        read!(io, tracts)
+        # index cases and counties block
+        # index_counties = Vector{UInt32}(undef, hdr.n_hub)
+        # index_cases = Vector{UInt32}(undef, hdr.n_hub)
+        # read!(io, index_counties)
+        # read!(io, index_cases)
+        seek(io, position(io) + hdr.n_hub * sizeof(UInt32) * 2)
 
+        # flight_matrix block
+        seek(io, position(io) + 57 * 57 * sizeof(UInt32))
+
+        # variant prevalence block
+        seek(io, position(io) + 57 * sizeof(Float64))
+
+        # RNG state block
         rng_state = Vector{UInt64}(undef, hdr.n_processor)
         read!(io, rng_state)
 
@@ -81,18 +109,9 @@ function read_checkpoint_file(::Type{C}, ::Type{P}, ifile::AbstractString) where
         # first_block = cell_offsets[1]
         first_block = read(io, UInt64)
         
-        @show(Int(first_block))
+        # @show(Int(first_block))
 
         seek(io, first_block)
-
-        # n_agent = read(io, UInt64)
-        # @show(Int(n_agent))
-        # tmp = Community(C, P, n_agent)
-        # ref = Ref(tmp.cell_data)
-        # read!(io, ref)
-        # tmp.cell_data = ref[]
-        # read!(io, tmp.particles)
-        # return tmp
 
         data = Vector{Community{C,P}}(undef, hdr.n_comm)
         for k = 1:hdr.n_comm

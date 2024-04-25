@@ -54,7 +54,8 @@ function epi_plot(idir::AbstractString, run::Integer=2)
 
     h.tight_layout()
 
-    return h, ax
+    # return h, ax
+    return n_symp, n_symp_age, n_symp_hh
 
 end
 # ============================================================================ #
@@ -84,22 +85,23 @@ function parse_logfile(idir::AbstractString, run::Integer=2)
     t1 = hcat(d1...)'
     t2 = hcat(d2...)'
 
-    idx = findall(t1[:,1]) do x
-        x > 0 && floor(Int, x) == x
+    # log files can have repeated time points due to restarts, when multiple
+    # time points appear in the file use only the latest
+    len = Int(t1[end,1])
+    n_symptomatic = zeros(len)
+    n_symp_age = zeros(len, 5)
+    n_symp_hh = zeros(len, size(t2,2) - 6)
+
+    for k in 1:size(t1, 1)
+        idx = floor(Int, t1[k,1])
+        if idx > 0 && idx == t1[k,1]
+            idx2 = findfirst(isequal(idx), t2[:,1])
+
+            n_symptomatic[idx] = t1[k,2]
+            n_symp_age[idx,:] = t2[idx2,2:6]
+            n_symp_hh[idx,:] = t2[idx2,7:end]
+        end
     end
-
-    idx2 = findall(t2[:,1]) do x
-        x > 0 && floor(Int, x) == x
-    end
-
-    # # new symptomaitc cases per day
-    n_symptomatic = t1[idx,2]
-
-    # # new symptomaitc cases per day for each age group
-    n_symp_age = t2[idx2,2:6]
-    
-    # # new symptomaitc cases per day for each household size
-    n_symp_hh = t2[idx2,6:end]
     
     return n_symptomatic, n_symp_age, n_symp_hh
 end
@@ -111,7 +113,7 @@ function attack_cmp_timepoint(a::AbstractString, b::AbstractString)
 end
 # ---------------------------------------------------------------------------- #
 function parse_attackfiles(idir::AbstractString, run::Integer=2)
-    pat = Regex("Attack" * string(run) * "\\.\\d{3}")
+    pat = Regex("Attack" * string(run) * "\\.\\d{3}\$")
     files = find_files(idir, pat)
     sort!(files, lt=attack_cmp_timepoint)
     
