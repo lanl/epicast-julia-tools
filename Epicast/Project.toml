@@ -4,5 +4,7 @@ authors = ["Scottie Alexander <palexander@lanl.gov>"]
 version = "0.1.0"
 
 [deps]
+Colors = "5ae59095-9a9b-59fe-a467-6f913c188581"
 DelimitedFiles = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 PyPlot = "d330b81b-6aea-500a-939a-2ce795aea3ee"
+Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"

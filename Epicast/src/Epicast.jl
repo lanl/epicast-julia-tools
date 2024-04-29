@@ -1,6 +1,6 @@
 module Epicast
 
-using DelimitedFiles, PyPlot
+using DelimitedFiles, PyPlot, Colors, Statistics
 
 # ============================================================================ #
 function epi_plot(idir::AbstractString, run::Integer=2)
@@ -140,6 +140,186 @@ end
 # ---------------------------------------------------------------------------- #
 function parse_attackfile(ifile::AbstractString)
     return readdlm(ifile, skipstart=1)
+end
+# ============================================================================ #
+function run_index(names::AbstractVector{<:AbstractString})
+    return Dict{String,Int}(y => x for (x,y) in enumerate(names))
+end
+# ============================================================================ #
+struct EpicastTable{N}
+    index::Dict{String,Int}
+    data::Array{UInt16,N}
+end
+Base.getindex(x::EpicastTable{2}, s::AbstractString) = x.data[:, x.index[s]]
+Base.getindex(x::EpicastTable{3}, s::AbstractString) = x.data[:, x.index[s], :]
+function match_columns(f::Function, x::EpicastTable)
+    idx = Vector{Int}(undef, 0)
+    for key in keys(x.index)
+        f(key) && push!(idx, x.index[key])
+    end
+    return sort!(idx)
+end
+filter_columns(f::Function, x::EpicastTable) = sort!(filter(f, collect(keys(x.index))))
+# ============================================================================ #
+struct RunData
+    demog::EpicastTable{2}
+    data::EpicastTable{3}
+end
+rundata(x::RunData, s::AbstractString) = x.data[s]
+demographics(x::RunData, s::AbstractString) = x.demog[s]
+n_timepoint(x::RunData) = size(x.data.data, 3)
+is_demographic(x::RunData, s::AbstractString) = haskey(x.demog.index, s)
+function data_groups(x::RunData)
+    names = Set{String}()
+    for k in keys(x.data.index)
+        push!(names, split(k, "_")[1])
+    end
+    return names
+end
+# ============================================================================ #
+function read_runfile(ifile::AbstractString)
+    return open(ifile, "r") do io
+        nrow = read(io, UInt64)
+        ncol = read(io, UInt64)
+        n_pt = read(io, UInt64)
+        ncol_demog = read(io, UInt64)
+        hdr_len = read(io, UInt64)
+
+        # @show(Int(nrow), Int(ncol), Int(n_pt), Int(ncol_demog), Int(hdr_len))
+
+        names_buf = Vector{UInt8}(undef, hdr_len)
+        read!(io, names_buf)
+        names = split(String(names_buf), '\0', keepempty=false)
+
+        # demographics for of each tract
+        demo = Matrix{UInt16}(undef, nrow, ncol_demog)
+        read!(io, demo)
+
+        pos = position(io)
+        seekend(io)    
+        nbytes = position(io) - pos
+
+        @assert((nbytes % (nrow * ncol * sizeof(UInt16))) == 0,
+            "invalid data block size!")
+        
+        seek(io, pos)
+
+        data = Array{UInt16,3}(undef, nrow, ncol, n_pt)
+
+        for k in 1:n_pt
+            read!(io, view(data, :, :, k))
+        end
+
+        return RunData(
+            EpicastTable{2}(run_index(names[5:(5+ncol_demog-1)]), demo),
+            EpicastTable{3}(run_index(names), data),
+        )
+    end
+end
+# ============================================================================ #
+total_cases(x::Matrix{<:Real}) = dropdims(sum(x, dims=1),dims=1)
+# ============================================================================ #
+function new_cases(x::Matrix{<:Real}, f::Function=sum)
+    out = dropdims(f(x, dims=1),dims=1)
+    out[2:end] .= diff(out)
+    return out
+end
+mean_new_cases(x) = new_cases(x, mean)
+# ============================================================================ #
+function plot_all(data::RunData, ofile::AbstractString; plot_status::Bool=false)
+    PyPlot.ioff()
+    h, ax = subplots(3, 3)
+    h.set_size_inches((16,18))
+
+    plot_run(data, "age", freduce=mean_new_cases, normalize=true,
+        title="Age", ylab="Daily cases per tract", h=h, ax=ax[1,1])
+
+    plot_run(data, "household", freduce=mean_new_cases, normalize=true, dropname=true,
+        title="Household size", ylab="Daily cases per tract", h=h, ax=ax[1,2])
+
+    plot_run(data, "race", freduce=mean_new_cases, normalize=true, dropname=true,
+        title="Race", ylab="Daily cases per tract", h=h, ax=ax[1,3])
+
+    plot_run(data, "ethnicity", freduce=mean_new_cases, normalize=true, dropname=true,
+        title="Ethnicity", ylab="Daily cases per tract", h=h, ax=ax[2,1])
+
+    plot_run(data, "hospitalized", freduce=mean_new_cases, normalize=false, dropname=true,
+        title="Hospitalization", ylab="Daily incidence per tract", h=h, ax=ax[2,2])
+
+    plot_run(data, "icu", freduce=mean_new_cases, normalize=false, dropname=true,
+        title="ICU admitance", ylab="Daily incidence per tract", h=h, ax=ax[2,3])
+
+    plot_run(data, "ventilated", freduce=mean_new_cases, normalize=false, dropname=true,
+        title="Ventilation", ylab="Daily incidence per tract", h=h, ax=ax[3,1])
+    
+    plot_run(data, "dead", freduce=mean_new_cases, normalize=false, dropname=true,
+        title="Deaths", ylab="Daily incidence per tract", h=h, ax=ax[3,2])
+
+    plot_run(data, "infection-src", freduce=mean_new_cases, normalize=false, dropname=true,
+        title="Infection context", ylab="Daily incidence per tract", h=h, ax=ax[3,3])
+
+    h.tight_layout()
+
+    h.savefig(ofile, dpi=200)
+
+    PyPlot.close(h)
+
+    if plot_status
+        h, ax = plot_run(data, "status", freduce=total_cases, normalize=false, dropname=true,
+            title="Agent status", ylab="# of agents")
+
+        h.tight_layout()
+
+        ext = splitext(ofile)[2]
+        h.savefig(replace(ofile, ext => "_agent-status" * ext), dpi=200)
+        PyPlot.close(h)
+    end
+
+    PyPlot.ion()
+end
+# ============================================================================ #
+function plot_run(data::RunData, name::AbstractString; freduce=x->total_cases,
+    normalize::Bool=false, dropname::Bool=false, ylab::String="",
+    title::String="", h=nothing, ax=nothing)
+
+    cols = filter_columns(x -> startswith(x, name), data.data)
+    if h == nothing || ax == nothing
+        h, ax = subplots(1, 1)
+        h.set_size_inches((8,6))
+    end
+
+    t = 1:n_timepoint(data)
+
+    rm = dropname ? name * "_" => "" : "_" => " "
+
+    colors = map(col -> (red(col), green(col), blue(col)), 
+        distinguishable_colors(length(cols), [RGB(1,1,1), RGB(0,0,0)],
+            dropseed=true)
+    )
+    
+    for (k, col) in enumerate(cols)
+        dat = Float64.(rundata(data, col))
+        if normalize && is_demographic(data, col)
+            tmp2 = demographics(data, col)
+            dat ./= tmp2
+            replace!(x -> isnan(x) || isinf(x) ? 0.0 : x, dat)
+        end
+        tmp = freduce(dat)
+        ax.plot(t, tmp, label=replace(col, rm), color=colors[k])
+    end
+
+    ax.spines["top"].set_visible(false)
+    ax.spines["right"].set_visible(false)
+    ax.set_xlabel("Simulation day", fontsize=14)
+
+    !isempty(ylab) && ax.set_ylabel(ylab, fontsize=14)
+    !isempty(title) && ax.set_title(title, fontsize=18)
+
+    ax.legend(fontsize=14, frameon=false)
+
+    h.tight_layout()
+
+    return h, ax
 end
 # ============================================================================ #
 find_files(dir::AbstractString, re=r".*") = return do_match(dir, re, isfile)
