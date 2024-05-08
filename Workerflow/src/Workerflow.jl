@@ -28,6 +28,12 @@ function convert_workerflow(ifile::AbstractString, ofile::AbstractString)
     return ofile
 end
 # ---------------------------------------------------------------------------- #
+function wf_sort(x, y, mp)
+    from1 = mp[x[1]]
+    from2 = mp[y[1]]
+    return from1 == from2 ? isless(mp[x[2]], mp[y[2]]) : isless(from1, from2)
+end
+# ---------------------------------------------------------------------------- #
 # now works for both ascii and binary workerflow files, however, wf_file and
 # tract_file ***MUST*** use the same "ids" or correct results
 function convert_workerflow2(wf_file::AbstractString, tract_file::AbstractString,
@@ -50,7 +56,7 @@ function convert_workerflow2(wf_file::AbstractString, tract_file::AbstractString
     if all(iszero, d[end,:])
         d = d[1:end-1,:]
     end
-    
+
     # total number of "entries" (i.e. non-zero matrix elements)
     n_entry = size(d, 1)
 
@@ -65,6 +71,8 @@ function convert_workerflow2(wf_file::AbstractString, tract_file::AbstractString
         fips = ifo[k,4] * 10^6 + ifo[k,5]
         mp[id] = UInt64(fips)
     end
+
+    d = sortslices(d, dims=1, lt=(x,y)->wf_sort(x, y, mp))
 
     # total number of tracts in this file
     n_tract = length(unique(vcat(d[:,1], d[:,2])))

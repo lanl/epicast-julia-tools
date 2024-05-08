@@ -840,4 +840,12 @@ function tract_marginals(ifile::AbstractString)
     return out
 end
 # ============================================================================ #
+function locale_counts(ifile::AbstractString)
+    tracts = div.(getfield.(memmap(ifile), :fips_code), 10)
+    tmp = Set(tracts)
+    n_tract = length(tmp)
+    n_county = length(Set(div.(tracts, 10^6)))
+    return n_county, n_tract
+end
+# ============================================================================ #
 end # module UrbanPop
