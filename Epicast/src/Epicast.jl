@@ -164,11 +164,13 @@ filter_columns(f::Function, x::EpicastTable) = sort!(filter(f, collect(keys(x.in
 struct RunData
     demog::EpicastTable{2}
     data::EpicastTable{3}
+    runno::String
 end
 rundata(x::RunData, s::AbstractString) = x.data[s]
+has_data(x::RunData, s::AbstractString) = haskey(x.data.index, s)
 demographics(x::RunData, s::AbstractString) = x.demog[s]
 n_timepoint(x::RunData) = size(x.data.data, 3)
-is_demographic(x::RunData, s::AbstractString) = haskey(x.demog.index, s)
+has_demographic(x::RunData, s::AbstractString) = haskey(x.demog.index, s)
 function data_groups(x::RunData)
     names = Set{String}()
     for k in keys(x.data.index)
@@ -178,18 +180,26 @@ function data_groups(x::RunData)
 end
 # ============================================================================ #
 function read_runfile(ifile::AbstractString)
+    m = match(r".*run_(\d+)\.bin$", ifile)
+    m == nothing && error("failed to parse run number")
+    run = m[1]
     return open(ifile, "r") do io
         nrow = read(io, UInt64)
         ncol = read(io, UInt64)
         n_pt = read(io, UInt64)
         ncol_demog = read(io, UInt64)
-        hdr_len = read(io, UInt64)
+        demo_len = read(io, UInt64)
+        col_len = read(io, UInt64)
 
         # @show(Int(nrow), Int(ncol), Int(n_pt), Int(ncol_demog), Int(hdr_len))
 
-        names_buf = Vector{UInt8}(undef, hdr_len)
-        read!(io, names_buf)
-        names = split(String(names_buf), '\0', keepempty=false)
+        demo_buf = Vector{UInt8}(undef, demo_len)
+        read!(io, demo_buf)
+        demo_names = split(String(demo_buf), '\0', keepempty=false)
+
+        col_buf = Vector{UInt8}(undef, col_len)
+        read!(io, col_buf)
+        col_names = split(String(col_buf), '\0', keepempty=false)
 
         # demographics for of each tract
         demo = Matrix{UInt16}(undef, nrow, ncol_demog)
@@ -211,8 +221,9 @@ function read_runfile(ifile::AbstractString)
         end
 
         return RunData(
-            EpicastTable{2}(run_index(names[5:(5+ncol_demog-1)]), demo),
-            EpicastTable{3}(run_index(names), data),
+            EpicastTable{2}(run_index(demo_names), demo),
+            EpicastTable{3}(run_index(col_names), data),
+            m[1]
         )
     end
 end
@@ -226,10 +237,100 @@ function new_cases(x::Matrix{<:Real}, f::Function=sum)
 end
 mean_new_cases(x) = new_cases(x, mean)
 # ============================================================================ #
+function plot_all_multi(data::RunData, odir::AbstractString)
+    PyPlot.ioff()
+
+    h, ax = plot_run(data, "total", freduce=mean_new_cases, normalize=true,
+        ylab="Normalized new cases per tract")
+
+    ax.get_legend().remove()
+    h.tight_layout()
+
+    h.savefig(joinpath(odir, "total-cases_$(data.runno).png"), dpi=200)
+
+    PyPlot.close(h)
+
+    if has_data(data, "age_0")
+    
+        h, ax = subplots(1, 4)
+        h.set_size_inches((16, 5))
+
+        plot_run(data, "age", freduce=mean_new_cases, normalize=true,
+            title="Age", ylab="Normalized new cases per tract", h=h, ax=ax[1])
+
+        plot_run(data, "household", freduce=mean_new_cases, normalize=true, dropname=true,
+            title="Household size", ylab="", h=h, ax=ax[2])
+
+        plot_run(data, "race", freduce=mean_new_cases, normalize=true, dropname=true,
+            title="Race", ylab="", h=h, ax=ax[3])
+
+        plot_run(data, "ethnicity", freduce=mean_new_cases, normalize=true, dropname=true,
+            title="Ethnicity", ylab="", h=h, ax=ax[4])
+
+        h.tight_layout()
+
+        h.savefig(joinpath(odir, "demographic-cases_$(data.runno).png"), dpi=200)
+
+        PyPlot.close(h)
+    end
+
+    if has_data(data, "hospitalized_age0")
+    
+        h, ax = subplots(1,4)
+        h.set_size_inches((16, 5))
+
+        plot_run(data, "hospitalized", freduce=mean_new_cases, normalize=false, dropname=true,
+            title="Hospitalization", ylab="Daily incidence per tract", h=h, ax=ax[1])
+
+        plot_run(data, "icu", freduce=mean_new_cases, normalize=false, dropname=true,
+            title="ICU admitance", ylab="", h=h, ax=ax[2])
+
+        plot_run(data, "ventilated", freduce=mean_new_cases, normalize=false, dropname=true,
+            title="Ventilation", ylab="", h=h, ax=ax[3])
+        
+        plot_run(data, "dead", freduce=mean_new_cases, normalize=false, dropname=true,
+            title="Deaths", ylab="", h=h, ax=ax[4])
+
+        h.tight_layout()
+
+        h.savefig(joinpath(odir, "treatment-status_$(data.runno).png"), dpi=200)
+
+        PyPlot.close(h)
+    end
+
+    if has_data(data, "infection-src_family")
+
+        h, ax = plot_run(data, "infection-src", freduce=mean_new_cases, normalize=false, dropname=true,
+            title="Infection context", ylab="Daily cases per tract")
+
+        h.tight_layout()
+
+        h.savefig(joinpath(odir, "infection-context_$(data.runno).png"), dpi=200)
+
+        PyPlot.close(h)
+    end
+
+    if has_data(data, "status_incubation")
+        h, ax = plot_run(data, "status", freduce=total_cases, normalize=false, dropname=true,
+            title="Infection status", ylab="# of agents")
+
+        h.tight_layout()
+
+        h.savefig(joinpath(odir, "infection-status_$(data.runno).png"), dpi=200)
+
+        PyPlot.close(h)
+
+    end
+
+    PyPlot.ion()
+
+    return nothing
+end
+# ============================================================================ #
 function plot_all(data::RunData, ofile::AbstractString; plot_status::Bool=false)
     PyPlot.ioff()
     h, ax = subplots(3, 3)
-    h.set_size_inches((16,18))
+    h.set_size_inches((20,18))
 
     plot_run(data, "age", freduce=mean_new_cases, normalize=true,
         title="Age", ylab="Daily cases per tract", h=h, ax=ax[1,1])
@@ -256,7 +357,7 @@ function plot_all(data::RunData, ofile::AbstractString; plot_status::Bool=false)
         title="Deaths", ylab="Daily incidence per tract", h=h, ax=ax[3,2])
 
     plot_run(data, "infection-src", freduce=mean_new_cases, normalize=false, dropname=true,
-        title="Infection context", ylab="Daily incidence per tract", h=h, ax=ax[3,3])
+        title="Infection context", ylab="Daily cases per tract", h=h, ax=ax[3,3])
 
     h.tight_layout()
 
@@ -276,9 +377,11 @@ function plot_all(data::RunData, ofile::AbstractString; plot_status::Bool=false)
     end
 
     PyPlot.ion()
+
+    return nothing
 end
 # ============================================================================ #
-function plot_run(data::RunData, name::AbstractString; freduce=x->total_cases,
+function plot_run(data::RunData, name::AbstractString; freduce=total_cases,
     normalize::Bool=false, dropname::Bool=false, ylab::String="",
     title::String="", h=nothing, ax=nothing)
 
@@ -299,7 +402,7 @@ function plot_run(data::RunData, name::AbstractString; freduce=x->total_cases,
     
     for (k, col) in enumerate(cols)
         dat = Float64.(rundata(data, col))
-        if normalize && is_demographic(data, col)
+        if normalize && has_demographic(data, col)
             tmp2 = demographics(data, col)
             dat ./= tmp2
             replace!(x -> isnan(x) || isinf(x) ? 0.0 : x, dat)
