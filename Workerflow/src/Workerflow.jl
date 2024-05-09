@@ -1,6 +1,6 @@
 module Workerflow
 
-using DelimitedFiles
+using DelimitedFiles, CSV
 # ---------------------------------------------------------------------------- #
 function convert_workerflow(ifile::AbstractString, ofile::AbstractString)
 
@@ -90,6 +90,71 @@ function convert_workerflow2(wf_file::AbstractString, tract_file::AbstractString
 
 end
 
+# ---------------------------------------------------------------------------- #
+function find_files(idir::AbstractString, re::Regex=r".*")
+    out = String[]
+    for name in readdir(idir)
+        path = joinpath(idir, name)
+        if isfile(path) && match(re, name) != nothing
+            push!(out, path)
+        end
+    end
+    return out
+end
+# ---------------------------------------------------------------------------- #
+tract_sort(x, y) = x[1] == y[1] ? isless(x[2], y[2]) : isless(x[1], y[1])
+# ---------------------------------------------------------------------------- #
+function convert_workerflow3(idir::AbstractString, ofile::AbstractString; thr::Integer=0)
+    files = find_files(idir, r".*_JT00_\d{4}\.csv\.gz")
+    data = Dict{Tuple{Int,Int},Int}()
+    for file in files
+        try
+            add_file!(data, file)
+        catch err
+            println("[FAIL]: \"$(file)\"")
+            rethrow(err)
+        end
+        println("DONE: ", basename(file))
+    end
+
+    if thr > 0
+        filter!(data) do k
+            k.second > thr
+        end
+    end
+
+    tracts = sort!(collect(keys(data)), lt=tract_sort)
+
+    n_tract = length(Set(vcat(getindex.(tracts, 1), getindex.(tracts, 2))))
+
+    open(ofile, "w") do io
+        write(io, UInt64(n_tract))
+        write(io, UInt64(length(data)))
+        for k in tracts
+            write(io, UInt64(k[1]))
+            write(io, UInt64(k[2]))
+            write(io, UInt32(data[k]))
+        end
+    end
+
+    return nothing
+end
+# ---------------------------------------------------------------------------- #
+function add_file!(d::Dict{Tuple{Int,Int},Int}, ifile::AbstractString)
+    block2tract = 10000
+
+    csv = CSV.File(ifile)
+
+    for k in 1:length(csv)
+        # h_ = home, w_ = work
+        key = (div(csv.h_geocode[k], block2tract),
+            div(csv.w_geocode[k], block2tract))
+        n = get(d, key, 0)
+        d[key] = n + csv.S000[k]
+    end
+
+    return d
+end
 # ---------------------------------------------------------------------------- #
 function read_workerflow_file(ifile::AbstractString)
     from, to, n = open(ifile, "r") do io
