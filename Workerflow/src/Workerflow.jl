@@ -104,16 +104,58 @@ end
 # ---------------------------------------------------------------------------- #
 tract_sort(x, y) = x[1] == y[1] ? isless(x[2], y[2]) : isless(x[1], y[1])
 # ---------------------------------------------------------------------------- #
-function convert_workerflow3(idir::AbstractString, ofile::AbstractString; thr::Integer=0)
+struct LodesMatrixXfm
+    adj::Matrix{Bool}
+    tract_list::Set{Int}
+    xfm::Dict{Int,Vector{Int}}
+end
+# ---------------------------------------------------------------------------- #
+function xfm(x::LodesMatrixXfm, bg_fips::Integer)
+    tract = div(bg_fips, 10)
+    out = Int[]
+    
+    if in(tract, x.tract_list)
+        # block groups belongs to a UP tract based on FIPS hierarchy
+        push!(out, tract)
+    end
+
+    if haskey(x.xfm, bg_fips)
+        # block group also contributes to another UP tract based on cross-walk
+        append!(out, x.xfm[bg_fips])
+    end
+    return isempty(out) ? [-1] : out
+end
+# ---------------------------------------------------------------------------- #
+# from and to are block-group fips codes
+function xfm_entry(x::LodesMatrixXfm, from_bg::Integer, to_bg::Integer)
+    bg2state = 10^10
+    from = -1
+    to = -1
+    if x.adj[div(from_bg, bg2state), div(to_bg, bg2state)]
+        # from and to states are considered ~ "neighbors"
+        from = xfm(x, from_bg)
+        to = xfm(x, to_bg)
+    end
+
+    return from, to
+end
+# ---------------------------------------------------------------------------- #
+function get_lodes_tracts(idir::AbstractString)
+    files = find_files(idir, r".*_JT00_\d{4}\.csv\.gz")
+    from = Set{Int}()
+    to = Set{Int}()
+    for file in files
+        add_tracts!(file, from, to)
+    end
+
+    return from, to
+end
+# ---------------------------------------------------------------------------- #
+function get_lodes_matrix(idir::AbstractString, x::LodesMatrixXfm, thr::Integer)
     files = find_files(idir, r".*_JT00_\d{4}\.csv\.gz")
     data = Dict{Tuple{Int,Int},Int}()
     for file in files
-        try
-            add_file!(data, file)
-        catch err
-            println("[FAIL]: \"$(file)\"")
-            rethrow(err)
-        end
+        add_file!(data, file, x)
         println("DONE: ", basename(file))
     end
 
@@ -122,6 +164,85 @@ function convert_workerflow3(idir::AbstractString, ofile::AbstractString; thr::I
             k.second > thr
         end
     end
+
+    return data
+end
+# ---------------------------------------------------------------------------- #
+function load_nhgis_crosswalk(ifile::AbstractString, tracts::Vector{<:Integer})
+    csv = CSV.File(ifile)
+
+    mp = Dict{Int, Vector{Int}}()
+    xw_src = csv.bg2010ge
+    xw_dst = csv.tr2020ge
+    xw_tr = Set(xw_dst)
+
+    for tr in tracts
+        # UP tract directy exists in crosswalk as a combination of 2010
+        # block-groups 
+        if in(tr, xw_tr)
+            idx = findall(isequal(tr), xw_dst)
+        else
+            # was the UP tract split into multiple tracts for 2020 census?
+            # e.g. 36053030600 -> [36053030601, 36053030602]
+            y = div(tr, 100)
+            idx = findall(xw_dst) do x
+                div(x, 100) == y
+            end
+        end
+        
+        if isempty(idx)
+            # no good candidates still, see if any 2010 block-groups appear to
+            # be members of this urbanopop tract (could be a 2010 tract that was
+            # removed in 2020, but was there in 2019 ACS), if so use those
+            idx = findall(xw_src) do x
+                div(x, 10) == tr
+            end
+            if isempty(idx)
+                # if not... find the 2020 tract w/ the closest FIPS code and
+                # issue a warning (in practice this only happens for Ogala
+                # Lakota County, SD, in which case data from a tract w/in the
+                # same county will be used instead)
+                cnty = div(tr, 10^6)
+                mn, kmn = findmin(xw_dst) do x
+                    div(x, 10^6) == cnty ? abs(x - tr) : +Inf
+                end
+                isinf(mn) && error("Completely failed tp map tract $(tr)")
+                idx = [kmn]
+                @warn("Failed for tract $(tr), using $(xw_dst[kmn])")
+            end
+        end
+
+        # map from 2010 block-group to one or more UrbanPop tract
+        for k in idx
+            if !haskey(mp, csv.bg2010ge[k])
+                mp[csv.bg2010ge[k]] = Int[]
+            end
+            push!(mp[csv.bg2010ge[k]], tr)
+        end
+    end
+
+    return mp
+end
+# ---------------------------------------------------------------------------- #
+function convert_lodes_workerflow(lodes_dir::AbstractString, xwlk_file::AbstractString,
+    up_tracts::Vector{<:Integer}, adj::Matrix{Bool}, ofile::AbstractString; thr::Integer=0)
+
+    # tract FIPS for given LODES data
+    @time from, to = get_lodes_tracts(lodes_dir)
+
+    # tracts that we need a crosswalk mapping for
+    xw_tracts = filter(up_tracts) do x
+        return !in(x, from) || !in(x, to)
+    end
+    
+    # construct xwlk mapping 2010 block-group -> UP tract
+    mp = load_nhgis_crosswalk(xwlk_file, xw_tracts)
+
+    # general transform object, that given 2010 block-groups FIPS will return
+    # the UrbanPop tract FIPS to which that block-groups "belongs"
+    xfm = LodesMatrixXfm(adj, Set(up_tracts), mp)
+
+    @time data = get_lodes_matrix(lodes_dir, xfm, thr)
 
     tracts = sort!(collect(keys(data)), lt=tract_sort)
 
@@ -140,17 +261,44 @@ function convert_workerflow3(idir::AbstractString, ofile::AbstractString; thr::I
     return nothing
 end
 # ---------------------------------------------------------------------------- #
-function add_file!(d::Dict{Tuple{Int,Int},Int}, ifile::AbstractString)
-    block2tract = 10000
+function tract_match(fip::Integer, fips::Vector{<:Integer})
+    if fip in fips
+        return [fip]
+    else
+        y = div(fip, 100)
+        return filter(fips) do x
+            div(x, 100) == y
+        end
+    end
+end
+# ---------------------------------------------------------------------------- #
+function add_tracts!(ifile::AbstractString, from::Set{Int}, to::Set{Int})
+    block2tract = 10^4
+    csv = CSV.File(ifile)
+    union!(from, Set(div.(csv.h_geocode, block2tract)))
+    union!(to, Set(div.(csv.w_geocode, block2tract)))
+    return nothing
+end
+# ---------------------------------------------------------------------------- #
+function add_file!(d::Dict{Tuple{Int,Int},Int}, ifile::AbstractString, x::LodesMatrixXfm)
+    block2bg = 10^3
 
     csv = CSV.File(ifile)
 
     for k in 1:length(csv)
         # h_ = home, w_ = work
-        key = (div(csv.h_geocode[k], block2tract),
-            div(csv.w_geocode[k], block2tract))
-        n = get(d, key, 0)
-        d[key] = n + csv.S000[k]
+        from, to = xfm_entry(x, div(csv.h_geocode[k], block2bg),
+                div(csv.w_geocode[k], block2bg))
+
+        for i in eachindex(from)
+            for j in eachindex(to)
+                if from[i] > 0 && to[j] > 0
+                    key = (from[i], to[j])
+                    n = get(d, key, 0)
+                    d[key] = n + csv.S000[k]
+                end
+            end
+        end
     end
 
     return d
@@ -191,5 +339,55 @@ get_column(d::Dict{Tuple{Int,Int}, Int}, idx::Integer) = get_slice(Slice{2,1}, d
 get_row(d::Dict{Tuple{Int,Int}, Int}, idx::Integer) = get_slice(Slice{1,2}, d, idx)
 # ---------------------------------------------------------------------------- #
 vec_sum(d::Dict{Int,Int}, rm::Integer) = sum(values(d)) - d[rm]
+# ---------------------------------------------------------------------------- #
+# list of neighboring and very nearby* states for each state
+# *NOTE: nearby means commuting is reasonable b/t these states
+function read_neighbor_file(ifile::AbstractString)
+    d = Dict{String,Vector{String}}()
+    for line in eachline(ifile)
+        list = split(line, " ", keepempty=false)
+        d[list[1]] = length(list) > 1 ? list[2:end] : String[]
+    end
+    return d
+end
+# ---------------------------------------------------------------------------- #
+# POSTAL Abbrv -> FIPS code
+function fips_map(ifile::AbstractString)
+    d = Dict{String,Int}()
+    for (k, st) in enumerate(eachline(ifile))
+        if !isempty(st)
+            d[st] = k
+        end
+    end
+    return d
+end
+# ---------------------------------------------------------------------------- #
+# FIPS indexed state adjacency matrix
+function state_adjacency_matrix(neighbor_file::AbstractString, fips_file::AbstractString)
+
+    neighbors = read_neighbor_file(neighbor_file)
+    fips = fips_map(fips_file)
+
+    adjm = zeros(Bool, 56, 56)
+
+    for k in 1:56
+        adjm[k,k] = true
+    end
+
+    for (k, v) in neighbors
+        if length(v) > 1
+            r = fips[k]
+            try
+                c = map(x->fips[x], v)
+                adjm[r, c] .= true
+            catch err
+                @show(k, v)
+                rethrow(err)
+            end
+        end
+    end
+
+    return adjm
+end
 # ---------------------------------------------------------------------------- #
 end
