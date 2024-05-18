@@ -129,8 +129,8 @@ end
 # from and to are block-group fips codes
 function xfm_entry(x::LodesMatrixXfm, from_bg::Integer, to_bg::Integer)
     bg2state = 10^10
-    from = -1
-    to = -1
+    from = [-1]
+    to = [-1]
     if x.adj[div(from_bg, bg2state), div(to_bg, bg2state)]
         # from and to states are considered ~ "neighbors"
         from = xfm(x, from_bg)
@@ -168,6 +168,21 @@ function get_lodes_matrix(idir::AbstractString, x::LodesMatrixXfm, thr::Integer)
     return data
 end
 # ---------------------------------------------------------------------------- #
+function get_lodes_mapping(idir::AbstractString, x::LodesMatrixXfm, thr::Integer)
+    files = find_files(idir, r".*_JT00_\d{4}\.csv\.gz")
+    data = Dict{Int,Vector{Int}}()
+    for file in files
+        add_mapping!(data, file, x)
+        println("DONE: ", basename(file))
+    end
+
+    for (k,v) in data
+        data[k] = unique(v)
+    end
+
+    return data
+end
+# ---------------------------------------------------------------------------- #
 function load_nhgis_crosswalk(ifile::AbstractString, tracts::Vector{<:Integer})
     csv = CSV.File(ifile)
 
@@ -176,11 +191,14 @@ function load_nhgis_crosswalk(ifile::AbstractString, tracts::Vector{<:Integer})
     xw_dst = csv.tr2020ge
     xw_tr = Set(xw_dst)
 
+    # n1, n2, n3, n4 = (0,0,0,0)
+
     for tr in tracts
         # UP tract directy exists in crosswalk as a combination of 2010
         # block-groups 
         if in(tr, xw_tr)
             idx = findall(isequal(tr), xw_dst)
+            # n1 += !isempty(idx)
         else
             # was the UP tract split into multiple tracts for 2020 census?
             # e.g. 36053030600 -> [36053030601, 36053030602]
@@ -188,15 +206,17 @@ function load_nhgis_crosswalk(ifile::AbstractString, tracts::Vector{<:Integer})
             idx = findall(xw_dst) do x
                 div(x, 100) == y
             end
+            # n2 += !isempty(idx)
         end
         
         if isempty(idx)
             # no good candidates still, see if any 2010 block-groups appear to
-            # be members of this urbanopop tract (could be a 2010 tract that was
+            # be members of this urbanpop tract (could be a 2010 tract that was
             # removed in 2020, but was there in 2019 ACS), if so use those
             idx = findall(xw_src) do x
                 div(x, 10) == tr
             end
+            # n3 += !isempty(idx)
             if isempty(idx)
                 # if not... find the 2020 tract w/ the closest FIPS code and
                 # issue a warning (in practice this only happens for Ogala
@@ -206,10 +226,12 @@ function load_nhgis_crosswalk(ifile::AbstractString, tracts::Vector{<:Integer})
                 mn, kmn = findmin(xw_dst) do x
                     div(x, 10^6) == cnty ? abs(x - tr) : +Inf
                 end
-                isinf(mn) && error("Completely failed tp map tract $(tr)")
+                isinf(mn) && error("Completely failed to map tract $(tr)")
                 idx = [kmn]
                 @warn("Failed for tract $(tr), using $(xw_dst[kmn])")
+                # n4 += !isempty(idx)
             end
+            
         end
 
         # map from 2010 block-group to one or more UrbanPop tract
@@ -221,6 +243,8 @@ function load_nhgis_crosswalk(ifile::AbstractString, tracts::Vector{<:Integer})
         end
     end
 
+    # println("step1: $(n1), step2: $(n2), step3: $(n3), step4: $(n4), sum = $(n1+n2+n3+n4)")
+
     return mp
 end
 # ---------------------------------------------------------------------------- #
@@ -228,21 +252,26 @@ function convert_lodes_workerflow(lodes_dir::AbstractString, xwlk_file::Abstract
     up_tracts::Vector{<:Integer}, adj::Matrix{Bool}, ofile::AbstractString; thr::Integer=0)
 
     # tract FIPS for given LODES data
-    @time from, to = get_lodes_tracts(lodes_dir)
+    from, to = get_lodes_tracts(lodes_dir)
 
     # tracts that we need a crosswalk mapping for
     xw_tracts = filter(up_tracts) do x
         return !in(x, from) || !in(x, to)
     end
-    
+
+    # step1: 67, step2: 5, step3: 5, step4: 8, sum = 85
     # construct xwlk mapping 2010 block-group -> UP tract
     mp = load_nhgis_crosswalk(xwlk_file, xw_tracts)
+
 
     # general transform object, that given 2010 block-groups FIPS will return
     # the UrbanPop tract FIPS to which that block-groups "belongs"
     xfm = LodesMatrixXfm(adj, Set(up_tracts), mp)
 
-    @time data = get_lodes_matrix(lodes_dir, xfm, thr)
+    data = get_lodes_matrix(lodes_dir, xfm, thr)
+
+    # @time data = get_lodes_mapping(lodes_dir, xfm, thr)
+    # return data
 
     tracts = sort!(collect(keys(data)), lt=tract_sort)
 
@@ -278,6 +307,37 @@ function add_tracts!(ifile::AbstractString, from::Set{Int}, to::Set{Int})
     union!(from, Set(div.(csv.h_geocode, block2tract)))
     union!(to, Set(div.(csv.w_geocode, block2tract)))
     return nothing
+end
+# ---------------------------------------------------------------------------- #
+function add_mapping!(d::Dict{Int,Vector{Int}}, ifile::AbstractString, x::LodesMatrixXfm)
+    block2bg = 10^3
+
+    csv = CSV.File(ifile)
+
+    for k in 1:length(csv)
+        # h_ = home, w_ = work
+        from, to = xfm_entry(x, div(csv.h_geocode[k], block2bg),
+                div(csv.w_geocode[k], block2bg))
+
+        if any(>(0), from)
+            if haskey(d, csv.h_geocode[k])
+                append!(d[csv.h_geocode[k]], filter(>(0), from))
+            else
+                d[csv.h_geocode[k]] = filter(>(0), from)
+            end
+        end
+
+        if any(>(0), to)
+            if haskey(d, csv.w_geocode[k])
+                append!(d[csv.w_geocode[k]], to)
+            else
+                d[csv.w_geocode[k]] = filter(>(0), to)
+            end
+        end
+
+    end
+
+    return d
 end
 # ---------------------------------------------------------------------------- #
 function add_file!(d::Dict{Tuple{Int,Int},Int}, ifile::AbstractString, x::LodesMatrixXfm)
