@@ -164,6 +164,7 @@ filter_columns(f::Function, x::EpicastTable) = sort!(filter(f, collect(keys(x.in
 struct RunData
     demog::EpicastTable{2}
     data::EpicastTable{3}
+    fips::Vector{UInt64}
     runno::String
 end
 rundata(x::RunData, s::AbstractString) = x.data[s]
@@ -177,6 +178,26 @@ function data_groups(x::RunData)
         push!(names, split(k, "_")[1])
     end
     return names
+end
+# ============================================================================ #
+function group_by(x::RunData, name::AbstractString, fgrp::Function,
+    freduce::Function; normalize::Bool=false)
+
+    cols = filter_columns(x -> startswith(x, name), x.data)
+    unique_grps = sort!(unique(fgrp.(x.fips)))
+
+    out = Array{Float64,3}(undef, n_timepoint(x), length(cols), length(unique_grps))
+    for k in eachindex(unique_grps)
+        idx = findall(x->fgrp(x) == unique_grps[k], x.fips)
+        for j in eachindex(cols)
+            out[:,j,k] .= freduce(rundata(x, cols[j])[idx,:])
+            if normalize && has_demographic(x, cols[j])
+                tmp2 = sum(demographics(x, cols[j])[idx])
+                out[:,j,k] ./= tmp2
+            end
+        end
+    end
+    return out, unique_grps
 end
 # ============================================================================ #
 function read_runfile(ifile::AbstractString)
@@ -201,6 +222,10 @@ function read_runfile(ifile::AbstractString)
         read!(io, col_buf)
         col_names = split(String(col_buf), '\0', keepempty=false)
 
+        # FIPS code for each tract
+        fips = Vector{UInt64}(undef, nrow)
+        read!(io, fips)
+
         # demographics for of each tract
         demo = Matrix{UInt16}(undef, nrow, ncol_demog)
         read!(io, demo)
@@ -223,6 +248,7 @@ function read_runfile(ifile::AbstractString)
         return RunData(
             EpicastTable{2}(run_index(demo_names), demo),
             EpicastTable{3}(run_index(col_names), data),
+            fips,
             m[1]
         )
     end
