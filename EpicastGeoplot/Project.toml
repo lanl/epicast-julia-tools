@@ -1,0 +1,12 @@
+name = "EpicastGeoplot"
+uuid = "0e7bac85-0835-48b7-bb06-6a97cb5ddbcc"
+authors = ["Scottie Alexander <palexander@lanl.gov>"]
+version = "0.1.0"
+
+[deps]
+Colors = "5ae59095-9a9b-59fe-a467-6f913c188581"
+Epicast = "cbb96616-a3d1-4d5e-a40b-9319cdaf6efd"
+Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+PyCall = "438e738f-606a-5dbb-bf0a-cddfbfd45ab0"
+PyPlot = "d330b81b-6aea-500a-939a-2ce795aea3ee"
+Shapefile = "8e980c4a-a4fe-5da2-b3a7-4b4b0353a2f4"

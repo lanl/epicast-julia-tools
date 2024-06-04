@@ -254,9 +254,9 @@ function read_runfile(ifile::AbstractString)
     end
 end
 # ============================================================================ #
-total_cases(x::Matrix{<:Real}) = dropdims(sum(x, dims=1),dims=1)
+total_cases(x::AbstractMatrix{<:Real}) = dropdims(sum(x, dims=1),dims=1)
 # ============================================================================ #
-function new_cases(x::Matrix{<:Real}, f::Function=sum)
+function new_cases(x::AbstractMatrix{<:Real}, f::Function=sum)
     out = dropdims(f(x, dims=1),dims=1)
     out[2:end] .= diff(out)
     return out
@@ -407,6 +407,46 @@ function plot_all(data::RunData, ofile::AbstractString; plot_status::Bool=false)
     return nothing
 end
 # ============================================================================ #
+function plot_states(data::RunData, ofile::AbstractString; title::AbstractString="")
+    
+    dat, lab = group_by(data, "total", x->div(Int(x),10^9), new_cases,
+        normalize=true)
+
+    PyPlot.ioff()
+    h, ax = subplots(1,1)
+    h.set_size_inches((14,9))
+
+    colors = map(col -> (red(col), green(col), blue(col)), 
+        distinguishable_colors(length(lab), [RGB(1,1,1), RGB(0,0,0)],
+            dropseed=true)
+    )
+
+    foreach(1:length(lab)) do k
+        ax.plot(dat[:,1,k] .* 1e5, color=colors[k], label=STATE_FIPS[lab[k]])
+    end
+    
+    ax.legend(frameon=false)
+
+    ax.set_xlabel("Simulation day", fontsize=14)
+    ax.set_ylabel("Daily infections per 100k residents", fontsize=14)
+
+    ax.spines["top"].set_visible(false)
+    ax.spines["right"].set_visible(false)
+    
+    # "Daily new cases per state (22 states, ~136M agents)"
+    !isempty(title) && ax.set_title(title, fontsize=18)
+
+    h.tight_layout()
+
+    h.savefig(ofile, dpi=200)
+
+    close(h)
+
+    PyPlot.ion()
+
+    return nothing
+end
+# ============================================================================ #
 function plot_run(data::RunData, name::AbstractString; freduce=total_cases,
     normalize::Bool=false, dropname::Bool=false, ylab::String="",
     title::String="", h=nothing, ax=nothing)
@@ -463,4 +503,15 @@ function do_match(dir::AbstractString, re::Regex, f::Function)
     return filter(x->occursin(re, x) && f(x), files)
 end
 # ============================================================================ #
+const STATE_FIPS = Dict(
+    1 => "AL", 2 => "AK", 4 => "AZ", 5 => "AR", 6 => "CA", 8 => "CO", 9 => "CT",
+    10 => "DE", 11 => "DC", 12 => "FL", 13 => "GA", 15 => "HI", 16 => "ID",
+    17 => "IL", 18 => "IN", 19 => "IA", 20 => "KS", 21 => "KY", 22 => "LA",
+    23 => "ME", 24 => "MD", 25 => "MA", 26 => "MI", 27 => "MN", 28 => "MS",
+    29 => "MO", 30 => "MT", 31 => "NE", 32 => "NV", 33 => "NH", 34 => "NJ",
+    35 => "NM", 36 => "NY", 37 => "NC", 38 => "ND", 39 => "OH", 40 => "OK",
+    41 => "OR", 42 => "PA", 44 => "RI", 45 => "SC", 46 => "SD", 47 => "TN",
+    48 => "TX", 49 => "UT", 50 => "VT", 51 => "VA", 53 => "WA", 54 => "WV",
+    55 => "WI", 56 => "WY"
+)
 end
