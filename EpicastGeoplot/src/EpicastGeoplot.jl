@@ -171,7 +171,8 @@ function make_figure(data::GeoplotData{T}, ofile::AbstractString="";
     cm = PyPlot.get_cmap("viridis")
 
     h, ax = subplots(1,2)
-    h.set_size_inches((14,7))
+    width = length(data.states) > 25 ? 15 : 14
+    h.set_size_inches((width,7))
 
     hp = draw_shapes!(ax[1], data, cm, (mn, mx))
 
@@ -203,7 +204,9 @@ function make_figure(data::GeoplotData{T}, ofile::AbstractString="";
     ax[2].set_ylabel("New cases per 100k residents", fontsize=14)
     ax[2].set_xlabel("Simulation day", fontsize=14)
 
-    ax[2].legend(frameon=true, loc="upper left", bbox_to_anchor=(1.02, 1.0))
+    ncol = length(data.states) > 25 ? 2 : 1
+
+    ax[2].legend(frameon=true, loc="upper left", bbox_to_anchor=(1.02, 1.0), ncol=ncol)
     ax[2].set_title(" ", fontsize=18)
     mx2 = maximum(maximum, state_data_matrix(data))
 
