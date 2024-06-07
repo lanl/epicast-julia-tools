@@ -170,9 +170,17 @@ function make_figure(data::GeoplotData{T}, ofile::AbstractString="";
 
     cm = PyPlot.get_cmap("viridis")
 
-    h, ax = subplots(1,2)
-    width = length(data.states) > 25 ? 15 : 14
-    h.set_size_inches((width,7))
+    nstate = n_state(data)
+    width = nstate > 25 ? 15 : 14
+    w_ratio = [1.0, 1.0]
+    if 25 < nstate <= 40
+        w_ratio .= [1.3, 1.0]
+    elseif nstate > 40
+        w_ratio .= [1.7, 1.0]
+    end
+    
+    h, ax = subplots(1, 2, width_ratios=w_ratio)
+    h.set_size_inches((width,6.5))
 
     hp = draw_shapes!(ax[1], data, cm, (mn, mx))
 
@@ -188,7 +196,7 @@ function make_figure(data::GeoplotData{T}, ofile::AbstractString="";
     ax[1].set_xticks([])
 
     colors = map(col -> (red(col), green(col), blue(col)), 
-        distinguishable_colors(n_state(data), [RGB(1,1,1), RGB(0,0,0)],
+        distinguishable_colors(nstate, [RGB(1,1,1), RGB(0,0,0)],
             dropseed=true)
     )
 
