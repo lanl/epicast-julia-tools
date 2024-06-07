@@ -117,6 +117,7 @@ n_shape(g::GeoplotData) = length(g.shps)
 n_timepoint(g::GeoplotData) = size(data_matrix(g), 1)
 n_state(g::GeoplotData) = length(g.states)
 # ============================================================================ #
+# data_file = "/Users/palexander/Documents/emerge+radium/testing_results/15844097_run_003/15844097_run_003.bin"
 function geoplot_data(::Type{T}, data_file::AbstractString) where T <:AbstractShape
 
     all_data = Epicast.read_runfile(data_file)
@@ -138,26 +139,41 @@ function geoplot_data(::Type{T}, data_file::AbstractString) where T <:AbstractSh
     return GeoplotData{T}(shps, fips, states, data, state_data)
 end
 # ============================================================================ #
-function make_figure(data::GeoplotData{T}, ofile::AbstractString=""; maxq::Real=0.99) where T<:AbstractShape
+function draw_shapes!(ax, data::GeoplotData{CountyPolygon}, cm::ColorMap, ext::Tuple{Float64,Float64})
+    polys = Vector{Matrix{Float64}}(undef, n_shape(data))
+    for k in 1:n_shape(data)
+        ks, ke = largest_part(data.shps[k])
+        pts = view(data.shps[k].points, ks:ke)
+        polys[k] = [getfield.(pts, :x) getfield.(pts, :y)]
+    end
+    c = map(x -> (data.data[x][1] - ext[1]) / ext[2], data.fips)
+    hp = matplotlib.collections.PolyCollection(polys, facecolor=cm(c))
+    ax.add_collection(hp)
+    return hp
+end
+# ============================================================================ #
+function draw_shapes!(ax, data::GeoplotData{TractPoint}, cm::ColorMap, ext::Tuple{Float64,Float64})
+    xy = centroid.(data.shps)
+    c = map(x -> (data.data[x][1] - ext[1]) / ext[2], data.fips)
+    return ax.scatter(getindex.(xy, 1), getindex.(xy, 2), 3.0, c=cm(c))
+end
+quantile_threshold(::Type{CountyPolygon}) = 0.999
+quantile_threshold(::Type{TractPoint}) = 0.99
+# ============================================================================ #
+function make_figure(data::GeoplotData{T}, ofile::AbstractString="";
+    maxq::Real=quantile_threshold(T), frame::Integer=1) where T<:AbstractShape
 
-    # data_file = "/Users/palexander/Documents/emerge+radium/testing_results/15844097_run_003/15844097_run_003.bin"
     state_shp = "/Users/palexander/Documents/emerge+radium/geo-data/cb_2019_us_state_500k/cb_2019_us_state_500k.shp"
 
     mn = minimum(data_matrix(data))
-    # mx = maximum(data_matrix(data))
     mx = quantile(vec(data_matrix(data)), maxq)
 
-    # @show(mn, mx)
-
     cm = PyPlot.get_cmap("viridis")
+
     h, ax = subplots(1,2)
     h.set_size_inches((14,7))
 
-    hp = Vector{Vector{PyPlot.PyCall.PyObject}}(undef, n_shape(data))
-    for k in 1:n_shape(data)
-        d = (data.data[data.fips[k]][1] - mn) / mx
-        hp[k] = add_shape!(T, ax[1], data.shps[k], color=cm(d), label=string(Int(data.fips[k])))
-    end
+    hp = draw_shapes!(ax[1], data, cm, (mn, mx))
 
     state_outlines!(ax[1], state_shp, data.states, state_color(T))
 
@@ -178,7 +194,8 @@ function make_figure(data::GeoplotData{T}, ofile::AbstractString=""; maxq::Real=
     nt = n_timepoint(data)
     j = 1
     for (k,v) in data.state_data
-        ax[2].plot(0:(nt-1), v, linewidth=2, label=STATE_FIPS[k])
+        ax[2].plot(0:(nt-1), v, linewidth=2, label=STATE_FIPS[k], color=colors[j])
+        j += 1
     end
 
     ax[2].spines["right"].set_visible(false)
@@ -198,10 +215,8 @@ function make_figure(data::GeoplotData{T}, ofile::AbstractString=""; maxq::Real=
 
     update_figure(idx::Integer) = begin
         # t0 = time()
-        for k in 1:n_shape(data)
-            d = (data.data[data.fips[k]][idx] - mn) / mx
-            update_color!(T, hp[k], cm(d))
-        end
+        c = map(x -> (data.data[x][idx] - mn) / mx, data.fips)
+        hp.set_facecolors(cm(c))
         ax[1].set_title("Day " * string(idx-1), fontsize=18)
         time_idc.set_xdata([idx-1, idx-1])
         # println("Frame $(idx): ", time() - t0)
@@ -218,27 +233,36 @@ function make_figure(data::GeoplotData{T}, ofile::AbstractString=""; maxq::Real=
     end
 
     onpick(evt) = begin
-        lab = evt.artist.get_label()
-        if lab != nothing
-            fips_code = parse(Int, lab)
-            mx_use = max(mx2, maximum(data.data[fips_code]))
-            if county_line == nothing
-                county_line = ax[2].plot(0:(nt-1), data.data[fips_code],
-                    color="black", linewidth=2.5)[1]
-            else
-                county_line.set_ydata(data.data[fips_code])
+        if evt.mouseevent.button == 1
+            b, l = hp.contains(evt.mouseevent)
+            if b
+                idx = l["ind"][1] + 1
+                fips_code = data.fips[idx]
+                mx_use = max(mx2, maximum(data.data[fips_code]))
+                if county_line == nothing
+                    county_line = ax[2].plot(0:(nt-1), data.data[fips_code],
+                        color="black", linewidth=2.5)[1]
+                else
+                    county_line.set_ydata(data.data[fips_code])
+                end
+                ax[2].set_ylim(0, mx_use)
+                time_idc.set_ydata([0, mx_use])
+                ax[2].set_title("Location " * string(fips_code), fontsize=18)
             end
-            ax[2].set_ylim(0, mx_use)
-            time_idc.set_ydata([0, mx_use])
-            ax[2].set_title("Location " * lab, fontsize=18)
         end
     end
 
     h.tight_layout()
 
+    (1 < frame <= nt) && update_figure(frame)
+
     if !isempty(ofile)
-        anim = animation.FuncAnimation(h, update_figure, frames=2:nt)
-        anim.save(ofile, fps=3)
+        if endswith(ofile, ".mp4")
+            anim = animation.FuncAnimation(h, update_figure, frames=2:nt)
+            anim.save(ofile, fps=3)
+        else
+            h.savefig(ofile, dpi=200)
+        end
     else
         h.canvas.mpl_connect("scroll_event", onscroll)
         h.canvas.mpl_connect("pick_event", onpick)
@@ -254,24 +278,15 @@ function load_polygons(ifile::AbstractString, geo::Set{<:Integer}, level::Intege
     return Shapefile.shapes(tbl)[idx], fips[idx]
 end
 # ============================================================================ #
-function update_color!(::Type{CountyPolygon}, patches, color::NTuple{4,Float64})
-    for patch in patches
-        # patch.set(facecolor=color)
-        patch.set_facecolor(color)
-    end
-end
-# ============================================================================ #
-update_color!(::Type{TractPoint}, hp, color::NTuple{4,Float64}) = hp[1].set_color(color)
-# ============================================================================ #
 # /Users/palexander/Documents/emerge+radium/geo-data/cb_2019_us_state_500k/cb_2019_us_state_500k.shp
 function state_outlines!(ax, shpfile::AbstractString, states::Set{<:Integer}, color::AbstractString="white")
     shps, _ = load_polygons(shpfile, states, 1)
     for shp in shps
-        add_shape!(CountyPolygon, ax, shp, edgecolor=color, color="none")
+        add_state!(ax, shp, edgecolor=color, color="none")
     end
 end
 # ============================================================================ #
-function add_shape!(::Type{CountyPolygon}, ax, shp::Shapefile.Polygon; color=nothing,
+function add_state!(ax, shp::Shapefile.Polygon; color=nothing,
     edgecolor=nothing, label=nothing)
 
     h = Vector{PyPlot.PyCall.PyObject}(undef, length(shp.parts))
@@ -283,14 +298,6 @@ function add_shape!(::Type{CountyPolygon}, ax, shp::Shapefile.Polygon; color=not
             edgecolor=edgecolor, label=label, picker=label!=nothing)[1]
     end
     return h
-end
-# ============================================================================ #
-function add_shape!(::Type{TractPoint}, ax, shp::Shapefile.Polygon; color=nothing,
-    label=nothing)
-
-    x, y = centroid(shp)
-
-    return ax.plot(x, y, ".", color=color, label=label, markersize=2)
 end
 # ============================================================================ #
 const STATE_FIPS = Dict(
