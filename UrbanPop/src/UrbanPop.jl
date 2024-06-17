@@ -772,7 +772,7 @@ function Base.show(io::IO, t::TractMarginals)
     print(io, t.fips_code, ", ", t.n_agent, ", ", dist_str(t.age), ", ", dist_str(t.household_size))
 end
 # ---------------------------------------------------------------------------- #
-function Base.:+(a::UrbanPop.TractMarginals, b::UrbanPop.TractMarginals)
+function Base.:+(a::TractMarginals, b::TractMarginals)
     @assert(a.fips_code == b.fips_code, "FIPS code mismatch")
     a.n_agent += b.n_agent
     a.age .+= b.age
@@ -780,11 +780,31 @@ function Base.:+(a::UrbanPop.TractMarginals, b::UrbanPop.TractMarginals)
     return a
 end
 # ---------------------------------------------------------------------------- #
-function Base.:(==)(a::UrbanPop.TractMarginals, b::UrbanPop.TractMarginals)
+function Base.:(==)(a::TractMarginals, b::TractMarginals)
     return (a.fips_code == b.fips_code) && (a.age == b.age) &&
         (a.household_size == b.household_size)
 end
-Base.:(!=)(a::UrbanPop.TractMarginals, b::UrbanPop.TractMarginals) = !(a == b)
+Base.:(!=)(a::TractMarginals, b::TractMarginals) = !(a == b)
+# ---------------------------------------------------------------------------- #
+function join_fill(x::Vector{<:Integer}, c::Char=' ')
+    tmp = map(n->@sprintf("%5d", n), x)
+    return join(tmp, c)
+end
+# ---------------------------------------------------------------------------- #
+function Base.println(io::IO, t::TractMarginals, n::Integer=0)
+    TRACT2COUNTY = 10^6
+    t.n_agent < 1 && @warn("tract $(t.fips_code) has 0 agents?")
+    county_fips = div(t.fips_code, TRACT2COUNTY)
+    print(io, @sprintf("%5d", n), " ", @sprintf("%5d", t.n_agent), " ", 0, " ",
+        county_fips, " ",
+        @sprintf("%6d", t.fips_code - (county_fips * TRACT2COUNTY)), " ")
+    
+    hh_size = zeros(Int, 7)
+    hh_size[1:6] .= t.household_size[1:6]
+    hh_size[7] = sum(t.household_size[7:end-1])
+
+    println(io, join_fill(t.age[1:end-1], ' '), " ", join_fill(hh_size, ' '))
+end
 # ============================================================================ #
 function age_group(x::Agent)
     if x.person_age <= 5
@@ -842,12 +862,33 @@ function tract_marginals(ifile::AbstractString)
         n_agent += 1
     end
 
+    out[last_tract].n_agent = n_agent
+
     for (k,v) in out
         out[k].age[end] = sum(out[k].age)
         out[k].household_size[end] = sum(out[k].household_size)
     end
 
     return out
+end
+# ============================================================================ #
+function write_tract_marginals(idir::AbstractString, odir::AbstractString)
+    files = find_files(idir, r".*\.agents\.bin")
+    n = 0
+    for file in files
+        m = match(r"(\d{1,2})\.agents\.bin", basename(file))
+        m == nothing && error("failed to parse filename $(file)")
+        ofile = joinpath(odir, m[1] * ".dat")
+        tmp = sort!(collect(values(tract_marginals(file))), lt=(x,y)->x.fips_code<y.fips_code)
+        
+        open(ofile, "w") do io
+            println(io, length(tmp))
+            foreach((x,c)->println(io, x, c), tmp, n:(n+length(tmp)-1))
+        end
+        n += length(tmp)
+    end
+
+    return n
 end
 # ============================================================================ #
 function locale_counts(ifile::AbstractString)
