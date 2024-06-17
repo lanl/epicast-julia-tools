@@ -202,8 +202,10 @@ function make_figure(data::GeoplotData{T}, ofile::AbstractString="";
 
     nt = n_timepoint(data)
     j = 1
-    for (k,v) in data.state_data
-        ax[2].plot(0:(nt-1), v, linewidth=2, label=STATE_FIPS[k], color=colors[j])
+    for k in sort!(collect(keys(data.state_data.index)))
+        v = data.state_data[k]
+        ax[2].plot(0:(nt-1), v, linewidth=2, label=STATE_FIPS[k], color=colors[j],
+            picker=true)
         j += 1
     end
 
@@ -258,7 +260,10 @@ function make_figure(data::GeoplotData{T}, ofile::AbstractString="";
                 end
                 ax[2].set_ylim(0, mx_use)
                 time_idc.set_ydata([0, mx_use])
-                ax[2].set_title("Location " * string(fips_code), fontsize=18)
+                ax[2].set_title("County " * string(fips_code), fontsize=18)
+            elseif evt.artist.axes == ax[2]
+                lab = evt.artist.get_label()
+                ax[2].set_title("State " * lab, fontsize=18)
             end
         end
     end
