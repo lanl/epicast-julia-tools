@@ -240,10 +240,7 @@ function read_runfile(ifile::AbstractString)
         seek(io, pos)
 
         data = Array{UInt16,3}(undef, nrow, ncol, n_pt)
-
-        for k in 1:n_pt
-            read!(io, view(data, :, :, k))
-        end
+        read!(io, data)
 
         return RunData(
             EpicastTable{2}(run_index(demo_names), demo),
