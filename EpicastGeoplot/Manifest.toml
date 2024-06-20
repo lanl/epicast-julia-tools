@@ -2,7 +2,7 @@
 
 julia_version = "1.10.3"
 manifest_format = "2.0"
-project_hash = "b6f19f03b2ce5f72252be40459943e22c08a04f6"
+project_hash = "d68827b4876a55a2e481cb7b242a4711b84f3ba4"
 
 [[deps.ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
@@ -87,7 +87,7 @@ version = "2.2.4+0"
 
 [[deps.Epicast]]
 deps = ["Colors", "DelimitedFiles", "PyPlot", "Statistics"]
-path = "/Users/palexander/Documents/emerge+radium/code/julia-packages/Epicast"
+path = "../Epicast"
 uuid = "cbb96616-a3d1-4d5e-a40b-9319cdaf6efd"
 version = "0.1.0"
 
@@ -133,6 +133,11 @@ deps = ["EarCut_jll", "Extents", "GeoInterface", "IterTools", "LinearAlgebra", "
 git-tree-sha1 = "b62f2b2d76cee0d61a2ef2b3118cd2a3215d3134"
 uuid = "5c1252a2-5f33-56bf-86c9-59e7332b4326"
 version = "0.4.11"
+
+[[deps.Inflate]]
+git-tree-sha1 = "d1b1b796e47d94588b3757fe84fbf65a5ec4a80d"
+uuid = "d25df0c9-e2be-5dd7-82c8-3ad0b3e990b9"
+version = "0.1.5"
 
 [[deps.InlineStrings]]
 deps = ["Parsers"]

@@ -18,6 +18,8 @@ const TRACT2STATE = 10^9
 const TRACT2COUNTY = 10^6
 const COUNTY2STATE = 10^3
 
+const DATADIR = joinpath(@__DIR__, "..", "assets", "geo-data", "data")
+
 # ============================================================================ #
 # function county_data(x::Epicast.RunData, county_fips, var::AbstractString)
 #     idx = findall(x -> div(x, TRACT2COUNTY) == county_fips, x.fips)
@@ -94,8 +96,8 @@ abstract type AbstractShape end
 struct CountyPolygon <: AbstractShape end
 struct TractPoint <: AbstractShape end
 
-shape_file(::Type{CountyPolygon}) = "/Users/palexander/Documents/emerge+radium/geo-data/cb_2019_us_all_5m/cb_2019_us_county_5m/cb_2019_us_county_5m.shp"
-shape_file(::Type{TractPoint}) = "/Users/palexander/Documents/emerge+radium/geo-data/cb_2019_us_tract_500k/cb_2019_us_tract_500k.shp"
+shape_file(::Type{CountyPolygon}) = joinpath(DATADIR, "cb_2019_us_county_5m.shp")
+shape_file(::Type{TractPoint}) = joinpath(DATADIR, "cb_2019_us_tract_500k.shp")
 to_state(::Type{CountyPolygon}) = COUNTY2STATE
 to_state(::Type{TractPoint}) = TRACT2STATE
 to_geo(::Type{CountyPolygon}) = TRACT2COUNTY
@@ -163,7 +165,7 @@ quantile_threshold(::Type{TractPoint}) = 0.99
 function make_figure(data::GeoplotData{T}, ofile::AbstractString="";
     maxq::Real=quantile_threshold(T), frame::Integer=1) where T<:AbstractShape
 
-    state_shp = "/Users/palexander/Documents/emerge+radium/geo-data/cb_2019_us_state_500k/cb_2019_us_state_500k.shp"
+    state_shp = joinpath(DATADIR, "cb_2019_us_state_500k.shp")
 
     mn = minimum(data_matrix(data))
     mx = quantile(vec(data_matrix(data)), maxq)
