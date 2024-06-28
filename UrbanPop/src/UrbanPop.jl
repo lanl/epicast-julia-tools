@@ -828,7 +828,7 @@ function household_size(x::Agent)
     end
 end
 # ============================================================================ #
-function tract_marginals(ifile::AbstractString)
+function tract_marginals(ifile::AbstractString, agents_by_size::Bool=false)
 
     raw = memmap(ifile)
 
@@ -836,6 +836,7 @@ function tract_marginals(ifile::AbstractString)
 
     last_tract = 0
     n_agent = 0
+    last_hh_id = -1
 
     for k in 1:length(raw)
         # tract fips code
@@ -855,10 +856,14 @@ function tract_marginals(ifile::AbstractString)
 
         hh_id = Int(raw[k].household_id)
         
-        # add hosuehold size (count of agents per hh size, not hh count)
         hh_index = household_size(raw[k])
-        tmp.household_size[hh_index] += 1
-
+        if agents_by_size
+            # add hosuehold size (count of agents per hh size, not hh count)        
+            tmp.household_size[hh_index] += 1
+        elseif last_hh_id != hh_id
+            tmp.household_size[hh_index] += 1
+        end
+        last_hh_id = hh_id
         n_agent += 1
     end
 
@@ -879,7 +884,7 @@ function write_tract_marginals(idir::AbstractString, odir::AbstractString)
         m = match(r"(\d{1,2})\.agents\.bin", basename(file))
         m == nothing && error("failed to parse filename $(file)")
         ofile = joinpath(odir, m[1] * ".dat")
-        tmp = sort!(collect(values(tract_marginals(file))), lt=(x,y)->x.fips_code<y.fips_code)
+        tmp = sort!(collect(values(tract_marginals(file, false))), lt=(x,y)->x.fips_code<y.fips_code)
         
         open(ofile, "w") do io
             println(io, length(tmp))

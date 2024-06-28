@@ -163,7 +163,7 @@ quantile_threshold(::Type{CountyPolygon}) = 0.999
 quantile_threshold(::Type{TractPoint}) = 0.99
 # ============================================================================ #
 function make_figure(data::GeoplotData{T}, ofile::AbstractString="";
-    maxq::Real=quantile_threshold(T), frame::Integer=1) where T<:AbstractShape
+    maxq::Real=quantile_threshold(T), frame::Integer=1, vertical::Bool=false) where T<:AbstractShape
 
     state_shp = joinpath(DATADIR, "cb_2019_us_state_500k.shp")
 
@@ -181,8 +181,13 @@ function make_figure(data::GeoplotData{T}, ofile::AbstractString="";
         w_ratio .= [1.7, 1.0]
     end
     
-    h, ax = subplots(1, 2, width_ratios=w_ratio)
-    h.set_size_inches((width,6.5))
+    if vertical
+        h, ax = subplots(2, 1)
+        h.set_size_inches((width/2,10))
+    else
+        h, ax = subplots(1, 2, width_ratios=w_ratio)
+        h.set_size_inches((width,6.5))
+    end
 
     hp = draw_shapes!(ax[1], data, cm, (mn, mx))
 
@@ -218,7 +223,11 @@ function make_figure(data::GeoplotData{T}, ofile::AbstractString="";
 
     ncol = length(data.states) > 25 ? 2 : 1
 
-    ax[2].legend(frameon=true, loc="upper left", bbox_to_anchor=(1.02, 1.0), ncol=ncol)
+    if vertical
+        ax[2].legend(frameon=true, loc="lower left", bbox_to_anchor=(1.02, 0.0), ncol=ncol)
+    else
+        ax[2].legend(frameon=true, loc="upper left", bbox_to_anchor=(1.02, 1.0), ncol=ncol)
+    end
     ax[2].set_title(" ", fontsize=18)
     mx2 = maximum(maximum, state_data_matrix(data))
 
@@ -271,6 +280,12 @@ function make_figure(data::GeoplotData{T}, ofile::AbstractString="";
     end
 
     h.tight_layout()
+    
+    if vertical
+        h.subplots_adjust(hspace=0)
+        bb = ax[1].get_position()
+        ax[1].set_position([0.02, bb.y0, 0.9, bb.height])
+    end
 
     (1 < frame <= nt) && update_figure(frame)
 
