@@ -161,7 +161,9 @@ function match_columns(f::Function, x::EpicastTable)
 end
 filter_columns(f::Function, x::EpicastTable) = sort!(filter(f, collect(keys(x.index))))
 # ============================================================================ #
-struct RunData
+abstract type AbstractRunData end
+# ============================================================================ #
+struct RunData <: AbstractRunData
     demog::EpicastTable{2}
     data::EpicastTable{3}
     fips::Vector{UInt64}
@@ -200,35 +202,43 @@ function group_by(x::RunData, name::AbstractString, fgrp::Function,
     return out, unique_grps
 end
 # ============================================================================ #
-function read_runfile(ifile::AbstractString)
+function read_runfile_header(io::IO)
+    nrow = read(io, UInt64)
+    ncol = read(io, UInt64)
+    n_pt = read(io, UInt64)
+    ncol_demog = read(io, UInt64)
+    demo_len = read(io, UInt64)
+    col_len = read(io, UInt64)
+
+    # @show(Int(nrow), Int(ncol), Int(n_pt), Int(ncol_demog), Int(hdr_len))
+
+    demo_buf = Vector{UInt8}(undef, demo_len)
+    read!(io, demo_buf)
+    demo_names = split(String(demo_buf), '\0', keepempty=false)
+
+    col_buf = Vector{UInt8}(undef, col_len)
+    read!(io, col_buf)
+    col_names = split(String(col_buf), '\0', keepempty=false)
+
+    # FIPS code for each tract
+    fips = Vector{UInt64}(undef, nrow)
+    read!(io, fips)
+
+    # demographics for of each tract
+    demo = Matrix{UInt16}(undef, nrow, ncol_demog)
+    read!(io, demo)
+
+    return nrow, ncol, n_pt, col_names, fips,
+        EpicastTable{2}(run_index(demo_names), demo)
+end
+# ============================================================================ #
+function read_runfile(ifile::AbstractString)   
     m = match(r".*run_(\d+)\.bin$", ifile)
-    m == nothing && error("failed to parse run number")
+    m == nothing && error("failed to parse run number, is this a transitions file?")
     run = m[1]
     return open(ifile, "r") do io
-        nrow = read(io, UInt64)
-        ncol = read(io, UInt64)
-        n_pt = read(io, UInt64)
-        ncol_demog = read(io, UInt64)
-        demo_len = read(io, UInt64)
-        col_len = read(io, UInt64)
 
-        # @show(Int(nrow), Int(ncol), Int(n_pt), Int(ncol_demog), Int(hdr_len))
-
-        demo_buf = Vector{UInt8}(undef, demo_len)
-        read!(io, demo_buf)
-        demo_names = split(String(demo_buf), '\0', keepempty=false)
-
-        col_buf = Vector{UInt8}(undef, col_len)
-        read!(io, col_buf)
-        col_names = split(String(col_buf), '\0', keepempty=false)
-
-        # FIPS code for each tract
-        fips = Vector{UInt64}(undef, nrow)
-        read!(io, fips)
-
-        # demographics for of each tract
-        demo = Matrix{UInt16}(undef, nrow, ncol_demog)
-        read!(io, demo)
+        nrow, ncol, n_pt, col_names, fips, demo = read_runfile_header(io)
 
         pos = position(io)
         seekend(io)    
@@ -243,13 +253,90 @@ function read_runfile(ifile::AbstractString)
         read!(io, data)
 
         return RunData(
-            EpicastTable{2}(run_index(demo_names), demo),
+            demo,
             EpicastTable{3}(run_index(col_names), data),
             fips,
             m[1]
         )
     end
 end
+# ============================================================================ #
+struct AgentTransition
+    agent_id::UInt64
+    location_id::UInt64
+    timestep::UInt32
+    context::UInt8
+    state::UInt8
+end
+# ---------------------------------------------------------------------------- #
+home_state(a::AgentTransition) = a.agent_id >> 58
+agent_id(a::AgentTransition) = a.agent_id & ~(UInt64(0b0111111) << 58)
+tract_fips(a::AgentTransition) = a.location_id >> 8
+tract_community(a::AgentTransition) = a.location_id & 0xff
+
+# (tract, community) in which transition to infected occured
+infection_location(a::AgentTransition) = tract_fips(a), tract_community(a)
+# ============================================================================ #
+function read_agent_transitions(io::IO)
+    pos = position(io)
+    seekend(io)
+    nbyte = position(io) - pos
+    seek(io, pos)
+
+    if (nbyte % sizeof(AgentTransition)) != 0
+        @warn("File contains inomplete transition packets")
+    end
+
+    n_packet = div(nbyte, sizeof(AgentTransition))
+    
+    data = Vector{AgentTransition}(undef, n_packet)
+    read!(io, data)
+    
+    return data
+end
+# ============================================================================ #
+function RunData(demog::EpicastTable{2}, data::Vector{AgentTransition},
+    fips::Vector{UInt64}, n_pt::Integer, run::AbstractString)
+
+    mp = Dict{UInt64,Int}(id => k for (k,id) in enumerate(fips))
+
+    tmp = zeros(UInt16, length(fips), 1, n_pt)
+
+    for d in data
+        r = mp[tract_fips(d)]
+        s = div(d.timestep, 2) + 1
+
+        # count files store data as cumulative sum, so compute that as we go
+        view(tmp, r, 1, s:n_pt) .+= 1
+    end
+
+    return RunData(demog, EpicastTable{3}(run_index(["total"]), tmp), fips, run)
+end
+# ============================================================================ #
+struct EventData <: AbstractRunData
+    demog::EpicastTable{2}
+    events::Vector{AgentTransition}
+    fips::Vector{UInt64}
+    n_pt::UInt64
+    run::String
+end
+# ============================================================================ #
+function read_eventfile(::Type{T}, ifile::AbstractString) where T<:AbstractRunData   
+    m = match(r".*run_(\d+)\.events\.bin$", ifile)
+    m == nothing && error("failed to parse run number, is this a counts file?")
+    run = m[1]
+
+    return open(ifile, "r") do io
+
+        nrow, ncol, n_pt, col_names, fips, demog = read_runfile_header(io)
+
+        events = read_agent_transitions(io)
+
+        return T(demog, events, fips, n_pt, m[1])
+    end
+end
+
+read_eventfile(ifile::AbstractString) = read_eventfile(RunData, ifile)
 # ============================================================================ #
 total_cases(x::AbstractMatrix{<:Real}) = dropdims(sum(x, dims=1),dims=1)
 # ============================================================================ #
