@@ -119,10 +119,13 @@ n_shape(g::GeoplotData) = length(g.shps)
 n_timepoint(g::GeoplotData) = size(data_matrix(g), 1)
 n_state(g::GeoplotData) = length(g.states)
 # ============================================================================ #
-# data_file = "/Users/palexander/Documents/emerge+radium/testing_results/15844097_run_003/15844097_run_003.bin"
 function geoplot_data(::Type{T}, data_file::AbstractString) where T <:AbstractShape
 
-    all_data = Epicast.read_runfile(data_file)
+    if endswith(data_file, ".events.bin")
+        all_data = Epicast.read_eventfile(Epicast.RunData, data_file)
+    else
+        all_data = Epicast.read_runfile(data_file)
+    end
 
     states = Set(div.(all_data.fips, TRACT2STATE))
 
