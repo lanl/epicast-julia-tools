@@ -264,9 +264,10 @@ end
 struct AgentTransition
     agent_id::UInt64
     location_id::UInt64
-    timestep::UInt32
+    timestep::UInt16
     context::UInt8
     state::UInt8
+    variant::UInt8
 end
 # ---------------------------------------------------------------------------- #
 home_state(a::AgentTransition) = a.agent_id >> 58
