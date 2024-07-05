@@ -186,6 +186,7 @@ n_geo(g::GeoplotData) = size(data_matrix(g), 2)
 n_shape(g::GeoplotData) = length(g.shps)
 n_timepoint(g::GeoplotData) = size(data_matrix(g), 1)
 n_state(g::GeoplotData) = length(g.states)
+column_names(g::GeoplotData) = collect(keys(g.data.var_index))
 # ============================================================================ #
 function geoplot_data(::Type{T}, data_file::AbstractString,
     prefix::AbstractString="") where T <:AbstractShape
