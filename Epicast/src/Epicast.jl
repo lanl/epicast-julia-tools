@@ -2,6 +2,11 @@ module Epicast
 
 using DelimitedFiles, PyPlot, Colors, Statistics
 
+const TRACT2STATE = 10^9
+const TRACT2COUNTY = 10^6
+const COUNTY2STATE = 10^3
+
+export TRACT2STATE, TRACT2COUNTY, COUNTY2STATE
 # ============================================================================ #
 function epi_plot(idir::AbstractString, run::Integer=2)
 
@@ -150,8 +155,8 @@ struct EpicastTable{N}
     index::Dict{String,Int}
     data::Array{UInt16,N}
 end
-Base.getindex(x::EpicastTable{2}, s::AbstractString) = x.data[:, x.index[s]]
-Base.getindex(x::EpicastTable{3}, s::AbstractString) = x.data[:, x.index[s], :]
+Base.getindex(x::EpicastTable{2}, s::AbstractString) = view(x.data, :, x.index[s])#x.data[:, x.index[s]]
+Base.getindex(x::EpicastTable{3}, s::AbstractString) = view(x.data, :, x.index[s], :)#x.data[:, x.index[s], :]
 function match_columns(f::Function, x::EpicastTable)
     idx = Vector{Int}(undef, 0)
     for key in keys(x.index)
@@ -181,24 +186,58 @@ function data_groups(x::RunData)
     end
     return names
 end
+column_names(x::RunData) = collect(keys(x.data.index))
+demographic_names(x::RunData) = collect(keys(x.demog.index))
 # ============================================================================ #
-function group_by(x::RunData, name::AbstractString, fgrp::Function,
-    freduce::Function; normalize::Bool=false)
+function case_count!(out::AbstractVector, x::RunData, var::AbstractString,
+    idx::AbstractVector{<:Integer})
 
-    cols = filter_columns(x -> startswith(x, name), x.data)
-    unique_grps = sort!(unique(fgrp.(x.fips)))
+    if has_demographic(x, var)
+        # number of new cases relative to total size of that demographic
+        out .= new_cases(view(rundata(x, var), idx, :))
+        out ./= sum(view(demographics(x, var), idx))
+        out .*= 1e5
+    else
+        out .= total_cases(view(rundata(x, var), idx, :))
+    end
+    return out
+end
+# ============================================================================ #
+function group_by(x::RunData, name::AbstractString, conv::Integer,
+    fcases!::Function=case_count!)
 
-    out = Array{Float64,3}(undef, n_timepoint(x), length(cols), length(unique_grps))
+    if has_data(x, name)
+        cols = [name]
+    else
+        cols = filter_columns(x -> startswith(x, name), x.data)
+    end
+
+    dat, grp = group_by(x, cols, conv, fcases!)
+
+    return dropdmins(dat, dims=3), grp
+end
+# ============================================================================ #
+function group_by(x::RunData, conv::Integer, fcases!::Function=case_count!)
+
+    cols = sort!(collect(keys(x.data.index)))
+    return group_by(x, cols, conv, fcases!)
+end
+# ============================================================================ #
+function group_by(x::RunData, cols::Vector{<:AbstractString}, conv::Integer,
+    fcases!::Function=case_count!)
+
+    fips_conv = div.(x.fips, conv)
+    unique_grps = sort!(unique(fips_conv))
+
+    out = Array{Float64,3}(undef, n_timepoint(x), length(unique_grps), length(cols))    
+
     for k in eachindex(unique_grps)
-        idx = findall(x->fgrp(x) == unique_grps[k], x.fips)
+        idx = findall(isequal(unique_grps[k]), fips_conv)
         for j in eachindex(cols)
-            out[:,j,k] .= freduce(rundata(x, cols[j])[idx,:])
-            if normalize && has_demographic(x, cols[j])
-                tmp2 = sum(demographics(x, cols[j])[idx])
-                out[:,j,k] ./= tmp2
-            end
+            fcases!(view(out,:,k,j), x, cols[j], idx)
         end
     end
+
     return out, unique_grps
 end
 # ============================================================================ #
@@ -339,10 +378,16 @@ end
 
 read_eventfile(ifile::AbstractString) = read_eventfile(RunData, ifile)
 # ============================================================================ #
+total_cases(x::AbstractVector{<:Real}) = x
 total_cases(x::AbstractMatrix{<:Real}) = dropdims(sum(x, dims=1),dims=1)
 # ============================================================================ #
 function new_cases(x::AbstractMatrix{<:Real}, f::Function=sum)
     out = dropdims(f(x, dims=1),dims=1)
+    out[2:end] .= diff(out)
+    return out
+end
+function new_cases(x::AbstractVector{<:Real}, f::Function=sum)
+    out = copy(x)
     out[2:end] .= diff(out)
     return out
 end
@@ -494,8 +539,8 @@ end
 # ============================================================================ #
 function plot_states(data::RunData, ofile::AbstractString; title::AbstractString="")
     
-    dat, lab = group_by(data, "total", x->div(Int(x),10^9), new_cases,
-        normalize=true)
+    # 10^9 -> FIPS tract to state conversion
+    dat, lab = group_by(data, "total", TRACT2STATE, case_count!)
 
     PyPlot.ioff()
     h, ax = subplots(1,1)
