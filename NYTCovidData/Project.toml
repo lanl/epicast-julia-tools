@@ -1,0 +1,10 @@
+name = "NYTCovidData"
+uuid = "d9058bff-5ac5-4888-be9c-531ccd996b07"
+authors = ["Scottie Alexander <palexander@lanl.gov>"]
+version = "0.1.0"
+
+[deps]
+CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+UrbanPop = "f3f28a4b-fe4e-413d-beed-473d3cb4e60c"

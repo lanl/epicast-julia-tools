@@ -677,14 +677,16 @@ function read_tract_file(ifile::AbstractString)
     end
 end
 # ============================================================================ #
-function all_tract_fips(idir::AbstractString)
+function all_tract_data(idir::AbstractString)
     files = find_files(idir, r".*\.tracts\.bin$")
     all_tracts = Vector{Int64}(undef, 0)
+    all_pop = Vector{Int64}(undef, 0)
     for file in files
         raw = read_tract_file(file)
         append!(all_tracts, Int.(getfield.(raw, :fips_code)))
+        append!(all_pop, Int.(getfield.(raw, :n_agent)))
     end
-    return all_tracts
+    return all_tracts, all_pop
 end
 # ============================================================================ #
 function naics_lookup(ifo::Dict{String,<:Any}, naics::Integer, ndigit=NAICS_DIGITS)
