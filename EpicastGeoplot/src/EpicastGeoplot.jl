@@ -81,15 +81,15 @@ function case_count!(out::AbstractVector, x::Epicast.RunData,
         out .= Epicast.new_cases(in)
         out ./= Epicast.new_cases(view(Epicast.rundata(x, "total"), idx, :))
 
-    elseif startswith(var, "status_")
+    else#if startswith(var, "status_")
         # % of total agents w/in geography that are in given state
         out .= Epicast.total_cases(in)
         out ./= sum(view(Epicast.demographics(x, "total"), idx))
         out .*= 1e5
 
-    else
-        # default: total counts per location
-        out .= Epicast.total_cases(in)
+    #else
+    #    # default: total counts per location
+    #    out .= Epicast.total_cases(in)
     end
 
     return out
@@ -105,7 +105,7 @@ function data_dict(data::Epicast.RunData, names::Vector{<:AbstractString},
         # time x fips x var
         dat = Array{Float64,3}(undef, Epicast.n_timepoint(data),
             length(data.fips), length(names))
-        
+
         # this is pretty slow, and kinda inefficient, but it's nice to reuse
         # case_count!()
         for k in 1:size(dat, 2)
@@ -147,7 +147,7 @@ function centroid(poly::Shapefile.Polygon)
     c = [0.0, 0.0]
     ks, ke = largest_part(poly)
 
-    #@inbounds 
+    #@inbounds
     for k in ks:(ke-1)
         p = point2vec(poly.points[k])
         n = point2vec(poly.points[k+1])
@@ -257,7 +257,7 @@ end
 # ============================================================================ #
 function draw_shapes!(ax, data::GeoplotData{TractPoint}, var::AbstractString,
     cm::ColorMap, ext::Tuple{Float64,Float64})
-    
+
     xy = centroid.(data.shps)
     c = map(x -> (data.data[x, var][1] - ext[1]) / ext[2], data.fips)
     return ax.scatter(getindex.(xy, 1), getindex.(xy, 2), 3.0, c=cm(c))
@@ -266,17 +266,18 @@ quantile_threshold(::Type{CountyPolygon}) = 0.999
 quantile_threshold(::Type{TractPoint}) = 0.99
 # ============================================================================ #
 function make_figure(data::GeoplotData{T}; ofile::AbstractString="",
+    ylabel::AbstractString="New cases per 100k residents",
     maxq::Real=quantile_threshold(T), frame::Integer=1, vertical::Bool=false) where T<:AbstractShape
 
     var = first(keys(data.data.var_index))
 
-    return make_figure(data, var, ofile=ofile, maxq=maxq, frame=frame,
+    return make_figure(data, var, ofile=ofile, ylabel=ylabel, maxq=maxq, frame=frame,
         vertical=vertical)
 end
 # ---------------------------------------------------------------------------- #
 function make_figure(data::GeoplotData{T}, var::AbstractString;
-    ofile::AbstractString="", maxq::Real=quantile_threshold(T),
-    frame::Integer=1, vertical::Bool=false) where T<:AbstractShape
+    ofile::AbstractString="", ylabel::AbstractString="New cases per 100k residents",
+    maxq::Real=quantile_threshold(T), frame::Integer=1, vertical::Bool=false) where T<:AbstractShape
 
     state_shp = joinpath(DATADIR, "cb_2019_us_state_500k.shp")
 
@@ -294,7 +295,7 @@ function make_figure(data::GeoplotData{T}, var::AbstractString;
     elseif nstate > 40
         w_ratio .= [1.7, 1.0]
     end
-    
+
     if vertical
         h, ax = subplots(2, 1)
         h.set_size_inches((width/2,10))
@@ -316,7 +317,7 @@ function make_figure(data::GeoplotData{T}, var::AbstractString;
     ax[1].set_yticks([])
     ax[1].set_xticks([])
 
-    colors = map(col -> (red(col), green(col), blue(col)), 
+    colors = map(col -> (red(col), green(col), blue(col)),
         distinguishable_colors(nstate, [RGB(1,1,1), RGB(0,0,0)],
             dropseed=true)
     )
@@ -332,7 +333,7 @@ function make_figure(data::GeoplotData{T}, var::AbstractString;
 
     ax[2].spines["right"].set_visible(false)
     ax[2].spines["top"].set_visible(false)
-    ax[2].set_ylabel("New cases per 100k residents", fontsize=14)
+    ax[2].set_ylabel(ylabel, fontsize=14)
     ax[2].set_xlabel("Simulation day", fontsize=14)
 
     ncol = length(data.states) > 25 ? 2 : 1
@@ -359,7 +360,7 @@ function make_figure(data::GeoplotData{T}, var::AbstractString;
         time_idc.set_xdata([idx-1, idx-1])
         # println("Frame $(idx): ", time() - t0)
     end
-        
+
 
     onscroll(evt) = begin
         tmp = evt.button == "up" ? IDX + 1 : IDX - 1
@@ -394,7 +395,7 @@ function make_figure(data::GeoplotData{T}, var::AbstractString;
     end
 
     h.tight_layout()
-    
+
     if vertical
         h.subplots_adjust(hspace=0)
         bb = ax[1].get_position()
