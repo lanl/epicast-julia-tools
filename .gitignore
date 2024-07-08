@@ -1,3 +1,8 @@
 .DS_Store
 *.log
 *assets
+
+# Saved plots
+*.mp4
+*.pdf
+*.png
