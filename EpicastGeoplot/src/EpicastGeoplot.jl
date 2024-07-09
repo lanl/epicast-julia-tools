@@ -266,17 +266,18 @@ quantile_threshold(::Type{CountyPolygon}) = 0.999
 quantile_threshold(::Type{TractPoint}) = 0.99
 # ============================================================================ #
 function make_figure(data::GeoplotData{T}; ofile::AbstractString="",
+    style_geo::Function=identity, style_line::Function=identity,
     ylabel::AbstractString="New cases per 100k residents",
     maxq::Real=quantile_threshold(T), frame::Integer=1, vertical::Bool=false) where T<:AbstractShape
 
     var = first(keys(data.data.var_index))
 
-    return make_figure(data, var, ofile=ofile, ylabel=ylabel, maxq=maxq, frame=frame,
-        vertical=vertical)
+    return make_figure(data, var, ofile=ofile, style_geo=style_geo, style_line=style_line,
+        maxq=maxq, frame=frame, vertical=vertical)
 end
 # ---------------------------------------------------------------------------- #
 function make_figure(data::GeoplotData{T}, var::AbstractString;
-    ofile::AbstractString="", ylabel::AbstractString="New cases per 100k residents",
+    ofile::AbstractString="", style_geo::Function=identity, style_line::Function=identity,
     maxq::Real=quantile_threshold(T), frame::Integer=1, vertical::Bool=false) where T<:AbstractShape
 
     state_shp = joinpath(DATADIR, "cb_2019_us_state_500k.shp")
@@ -316,6 +317,7 @@ function make_figure(data::GeoplotData{T}, var::AbstractString;
 
     ax[1].set_yticks([])
     ax[1].set_xticks([])
+    style_geo(ax)
 
     colors = map(col -> (red(col), green(col), blue(col)),
         distinguishable_colors(nstate, [RGB(1,1,1), RGB(0,0,0)],
@@ -333,8 +335,9 @@ function make_figure(data::GeoplotData{T}, var::AbstractString;
 
     ax[2].spines["right"].set_visible(false)
     ax[2].spines["top"].set_visible(false)
-    ax[2].set_ylabel(ylabel, fontsize=14)
+    ax[2].set_ylabel("New cases per 100k residents", fontsize=14)
     ax[2].set_xlabel("Simulation day", fontsize=14)
+    style_line(ax[2])
 
     ncol = length(data.states) > 25 ? 2 : 1
 
