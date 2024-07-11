@@ -56,17 +56,42 @@ function Base.iterate(f::FIPSTableIterator, k::Integer=1)
 end
 # ============================================================================ #
 function case_count!(out::AbstractVector, x::Epicast.RunData,
-    var::AbstractString, idx::AbstractVector{<:Integer})
+    var::AbstractString, idx::AbstractVector{<:Integer}, norm::AbstractString="")
 
     in = view(Epicast.rundata(x, var), idx, :)
 
-    if Epicast.has_demographic(x, var)
+    # Defaults; can be overriden by passing norm manually
+    if norm == ""
+        if Epicast.has_demographic(x, var)
+            norm = var
+
+        elseif endswith(var, r"_age\d")
+            # number of new [hospitialized, icu, ventiated, dead] for given age
+            # group relative to that age group's total population (for each
+            # location)
+            norm = "age_" * var[end]
+
+        elseif startswith(var, "infection-src")
+            # % of infections attributable to given context
+            norm = "new_cases_prop"
+
+        elseif startswith(var, "status_")
+            # % of total agents w/in geography that are in given state
+            norm = "prop"
+
+        else
+            # default: total counts per location
+            out .= Epicast.total_cases(in)
+        end
+    end
+
+    if Epicast.has_demographic(x, norm)
         # number of new cases relative to total size of that demographic
         out .= Epicast.new_cases(in)
-        out ./= sum(view(Epicast.demographics(x, var), idx))
+        out ./= sum(view(Epicast.demographics(x, norm), idx))
         out .*= 1e5
 
-    elseif endswith(var, r"_age\d")
+    elseif endswith(norm, r"age_\d")
         # number of new [hospitialized, icu, ventiated, dead] for given age
         # group relative to that age group's total population (for each
         # location)
@@ -76,31 +101,41 @@ function case_count!(out::AbstractVector, x::Epicast.RunData,
         out ./= sum(view(Epicast.demographics(x, age), idx))
         out .*= 1e5
 
-    elseif startswith(var, "infection-src")
+    elseif norm == "new_cases_prop"
         # % of infections attributable to given context
         out .= Epicast.new_cases(in)
         out ./= Epicast.new_cases(view(Epicast.rundata(x, "total"), idx, :))
 
-    else#if startswith(var, "status_")
+    elseif norm == "change_prop"
+        # change in state as a % of total agents w/in geography
+        out .= Epicast.new_cases(in)
+        out ./= sum(view(Epicast.demographics(x, "total"), idx, :))
+        out .*= 1e5
+
+    elseif norm == "prop"
         # % of total agents w/in geography that are in given state
         out .= Epicast.total_cases(in)
         out ./= sum(view(Epicast.demographics(x, "total"), idx))
         out .*= 1e5
 
-    #else
-    #    # default: total counts per location
-    #    out .= Epicast.total_cases(in)
+    elseif norm == "change"
+        # change in state as a % of total agents w/in geography
+        out .= Epicast.new_cases(in)
+
+    else
+        # default: total counts per location
+        out .= Epicast.total_cases(in)
     end
 
     return out
 end
 # ============================================================================ #
 function data_dict(data::Epicast.RunData, names::Vector{<:AbstractString},
-    conv::Integer=TRACT2COUNTY)
+    conv::Integer=TRACT2COUNTY, norms::Dict{String,String}=Dict{String,String}())
 
     if conv > 1
         # dat is: time x fips x var
-        dat, grp = Epicast.group_by(data, names, conv, case_count!)
+        dat, grp = Epicast.group_by(data, names, conv, case_count!, norms)
     else
         # time x fips x var
         dat = Array{Float64,3}(undef, Epicast.n_timepoint(data),
@@ -110,7 +145,7 @@ function data_dict(data::Epicast.RunData, names::Vector{<:AbstractString},
         # case_count!()
         for k in 1:size(dat, 2)
             for j in 1:size(dat, 3)
-                case_count!(view(dat, :, k, j), data, names[j], [k])
+                case_count!(view(dat, :, k, j), data, names[j], [k], get(norms, names[j], ""))
             end
         end
 
@@ -189,7 +224,7 @@ n_state(g::GeoplotData) = length(g.states)
 column_names(g::GeoplotData) = collect(keys(g.data.var_index))
 # ============================================================================ #
 function geoplot_data(::Type{T}, data_file::AbstractString,
-    prefix::AbstractString="") where T <:AbstractShape
+    prefix::AbstractString=""; norms::Dict{String,String}=Dict{String,String}()) where T <:AbstractShape
 
     if endswith(data_file, ".events.bin")
         data = Epicast.read_eventfile(Epicast.RunData, data_file)
@@ -205,10 +240,11 @@ function geoplot_data(::Type{T}, data_file::AbstractString,
         names = Epicast.filter_columns(x -> startswith(x, prefix), data.data)
     end
 
-    return geoplot_data(T, data, names)
+    return geoplot_data(T, data, names; norms=norms)
 end
 # ---------------------------------------------------------------------------- #
-function geoplot_data(::Type{T}, data_file::AbstractString, pat::Regex) where T <:AbstractShape
+function geoplot_data(::Type{T}, data_file::AbstractString, pat::Regex;
+    norms::Dict{String,String}=Dict{String,String}()) where T <:AbstractShape
 
     if endswith(data_file, ".events.bin")
         data = Epicast.read_eventfile(Epicast.RunData, data_file)
@@ -218,14 +254,14 @@ function geoplot_data(::Type{T}, data_file::AbstractString, pat::Regex) where T 
 
     names = Epicast.filter_columns(x -> match(pat, x) != nothing, data.data)
 
-    return geoplot_data(T, data, names)
+    return geoplot_data(T, data, names; norms=norms)
 end
 # ---------------------------------------------------------------------------- #
 function geoplot_data(::Type{T}, all_data::Epicast.RunData,
-    names::AbstractVector{<:AbstractString}) where T <:AbstractShape
+    names::AbstractVector{<:AbstractString}; norms::Dict{String,String}=Dict{String,String}()) where T <:AbstractShape
 
-    data = data_dict(all_data, names, to_geo(T))
-    state_data = data_dict(all_data, names, TRACT2STATE)
+    data = data_dict(all_data, names, to_geo(T), norms)
+    state_data = data_dict(all_data, names, TRACT2STATE, norms)
 
     states = Set(all_fips(state_data))
 
@@ -267,7 +303,6 @@ quantile_threshold(::Type{TractPoint}) = 0.99
 # ============================================================================ #
 function make_figure(data::GeoplotData{T}; ofile::AbstractString="",
     style_geo::Function=identity, style_line::Function=identity,
-    ylabel::AbstractString="New cases per 100k residents",
     maxq::Real=quantile_threshold(T), frame::Integer=1, vertical::Bool=false) where T<:AbstractShape
 
     var = first(keys(data.data.var_index))
