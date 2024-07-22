@@ -629,6 +629,64 @@ function plot_run(data::RunData, name::AbstractString; freduce=total_cases,
     return h, ax
 end
 # ============================================================================ #
+function plot_runs(data::Vector{RunData}, name::AbstractString; freduce=total_cases,
+    normalize::Bool=false, dropname::Bool=false, ylab::String="",
+    title::String="", h=nothing, ax=nothing,
+    dataset_names::AbstractVector{<:AbstractString}=nothing)
+
+    cols = map(d -> filter_columns(x -> startswith(x, name), d.data), data)
+    if h == nothing || ax == nothing
+        h, ax = subplots(1, 1)
+        h.set_size_inches((8,6))
+    end
+
+    t = 1:maximum(map(n_timepoint, data))
+
+    rm = dropname ? name * "_" => "" : "_" => " "
+
+    colors = map(col -> (red(col), green(col), blue(col)),
+                 distinguishable_colors(sum(map(length, cols)), [RGB(1,1,1), RGB(0,0,0)],
+                    dropseed=true))
+
+    k = 1
+    for (j, dataset_cols) in enumerate(cols)
+        dataset = data[j]
+        name = dataset_names[j]
+        for col in dataset_cols
+            dat = Float64.(rundata(dataset, col))
+            if normalize && has_demographic(dataset, col)
+                tmp2 = demographics(dataset, col)
+                dat ./= tmp2
+                replace!(x -> isnan(x) || isinf(x) ? 0.0 : x, dat)
+            end
+            tmp = freduce(dat)
+            label = replace(col, rm)
+            if dataset_names != nothing
+                if length(cols) == length(data)
+                    label = "$(name)_$label"
+                else
+                    label = name
+                end
+            end
+            ax.plot(t, tmp, label=label, color=colors[k])
+            k += 1
+        end
+    end
+
+    ax.spines["top"].set_visible(false)
+    ax.spines["right"].set_visible(false)
+    ax.set_xlabel("Simulation day", fontsize=14)
+
+    !isempty(ylab) && ax.set_ylabel(ylab, fontsize=14)
+    !isempty(title) && ax.set_title(title, fontsize=18)
+
+    ax.legend(fontsize=14, frameon=false)
+
+    h.tight_layout()
+
+    return h, ax
+end
+# ============================================================================ #
 find_files(dir::AbstractString, re=r".*") = return do_match(dir, re, isfile)
 # ---------------------------------------------------------------------------- #
 find_directories(dir::AbstractString, re=r".*") = return do_match(dir, re, isdir)
