@@ -652,17 +652,19 @@ function plot_runs(data::Vector{RunData}, name::AbstractString; freduce=total_ca
     for (j, dataset_cols) in enumerate(cols)
         dataset = data[j]
         name = dataset_names[j]
-        for col in dataset_cols
+        for (c, col) in enumerate(dataset_cols)
             dat = Float64.(rundata(dataset, col))
             if normalize && has_demographic(dataset, col)
-                tmp2 = demographics(dataset, col)
+                tmp2 = sum(demographics(dataset, col))
                 dat ./= tmp2
+                dat .*= 1e5
+
                 replace!(x -> isnan(x) || isinf(x) ? 0.0 : x, dat)
             end
             tmp = freduce(dat)
             label = replace(col, rm)
             if dataset_names != nothing
-                if length(cols) == length(data)
+                if length(colors) != length(data)
                     label = "$(name)_$label"
                 else
                     label = name
