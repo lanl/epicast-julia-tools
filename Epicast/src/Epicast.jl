@@ -587,7 +587,7 @@ end
 # ============================================================================ #
 function plot_run(data::RunData, name::AbstractString; freduce=total_cases,
     normalize::Bool=false, dropname::Bool=false, ylab::String="",
-    title::String="", h=nothing, ax=nothing)
+    title::String="", h=nothing, ax=nothing, style::Function=(h, ax) -> nothing)
 
     cols = filter_columns(x -> startswith(x, name), data.data)
     if h == nothing || ax == nothing
@@ -623,6 +623,7 @@ function plot_run(data::RunData, name::AbstractString; freduce=total_cases,
     !isempty(title) && ax.set_title(title, fontsize=18)
 
     ax.legend(fontsize=14, frameon=false)
+    style(h, ax)
 
     h.tight_layout()
 
@@ -631,7 +632,7 @@ end
 # ============================================================================ #
 function plot_runs(data::Vector{RunData}, name::AbstractString; freduce=total_cases,
     normalize::Bool=false, dropname::Bool=false, ylab::String="",
-    title::String="", h=nothing, ax=nothing,
+    title::String="", h=nothing, ax=nothing, style::Function=(h, ax) -> nothing,
     dataset_names::AbstractVector{<:AbstractString}=nothing)
 
     cols = map(d -> filter_columns(x -> startswith(x, name), d.data), data)
@@ -683,6 +684,7 @@ function plot_runs(data::Vector{RunData}, name::AbstractString; freduce=total_ca
     !isempty(title) && ax.set_title(title, fontsize=18)
 
     ax.legend(fontsize=14, frameon=false)
+    style(h, ax)
 
     h.tight_layout()
 
