@@ -431,7 +431,7 @@ function person_naics(x::AbstractString, employment::AbstractString)
 
     Source: https://www.census.gov/topics/employment/industry-occupation/guidance/code-lists.html
     =#
-    naics = tryparse(Int, replace(x, r"\D+"=>""))
+    naics = tryparse(Int, replace(x, r"\D+"=>"0"))
 
     out = 0
     if naics != nothing

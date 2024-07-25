@@ -153,7 +153,7 @@ end
 # ============================================================================ #
 struct EpicastTable{N}
     index::Dict{String,Int}
-    data::Array{UInt16,N}
+    data::Array{UInt32,N}
 end
 Base.getindex(x::EpicastTable{2}, s::AbstractString) = view(x.data, :, x.index[s])#x.data[:, x.index[s]]
 Base.getindex(x::EpicastTable{3}, s::AbstractString) = view(x.data, :, x.index[s], :)#x.data[:, x.index[s], :]
@@ -264,7 +264,7 @@ function read_runfile_header(io::IO)
     read!(io, fips)
 
     # demographics for of each tract
-    demo = Matrix{UInt16}(undef, nrow, ncol_demog)
+    demo = Matrix{UInt32}(undef, nrow, ncol_demog)
     read!(io, demo)
 
     return nrow, ncol, n_pt, col_names, fips,
@@ -283,12 +283,12 @@ function read_runfile(ifile::AbstractString)
         seekend(io)    
         nbytes = position(io) - pos
 
-        @assert((nbytes % (nrow * ncol * sizeof(UInt16))) == 0,
+        @assert((nbytes % (nrow * ncol * sizeof(UInt32))) == 0,
             "invalid data block size!")
         
         seek(io, pos)
 
-        data = Array{UInt16,3}(undef, nrow, ncol, n_pt)
+        data = Array{UInt32,3}(undef, nrow, ncol, n_pt)
         read!(io, data)
 
         return RunData(
@@ -340,7 +340,7 @@ function RunData(demog::EpicastTable{2}, data::Vector{AgentTransition},
 
     mp = Dict{UInt64,Int}(id => k for (k,id) in enumerate(fips))
 
-    tmp = zeros(UInt16, length(fips), 1, n_pt)
+    tmp = zeros(UInt32, length(fips), 1, n_pt)
 
     for d in data
         r = mp[tract_fips(d)]
