@@ -151,12 +151,12 @@ function run_index(names::AbstractVector{<:AbstractString})
     return Dict{String,Int}(y => x for (x,y) in enumerate(names))
 end
 # ============================================================================ #
-struct EpicastTable{N}
+struct EpicastTable{T,N}
     index::Dict{String,Int}
-    data::Array{UInt16,N}
+    data::Array{T,N}
 end
-Base.getindex(x::EpicastTable{2}, s::AbstractString) = view(x.data, :, x.index[s])#x.data[:, x.index[s]]
-Base.getindex(x::EpicastTable{3}, s::AbstractString) = view(x.data, :, x.index[s], :)#x.data[:, x.index[s], :]
+Base.getindex(x::EpicastTable{<:Any,2}, s::AbstractString) = view(x.data, :, x.index[s])#x.data[:, x.index[s]]
+Base.getindex(x::EpicastTable{<:Any,3}, s::AbstractString) = view(x.data, :, x.index[s], :)#x.data[:, x.index[s], :]
 function match_columns(f::Function, x::EpicastTable)
     idx = Vector{Int}(undef, 0)
     for key in keys(x.index)
@@ -168,9 +168,9 @@ filter_columns(f::Function, x::EpicastTable) = sort!(filter(f, collect(keys(x.in
 # ============================================================================ #
 abstract type AbstractRunData end
 # ============================================================================ #
-struct RunData <: AbstractRunData
-    demog::EpicastTable{2}
-    data::EpicastTable{3}
+struct RunData{T} <: AbstractRunData
+    demog::EpicastTable{T,2}
+    data::EpicastTable{T,3}
     fips::Vector{UInt64}
     runno::String
 end
@@ -249,7 +249,7 @@ function group_by(x::RunData, cols::Vector{<:AbstractString}, conv::Integer,
     return out, unique_grps
 end
 # ============================================================================ #
-function read_runfile_header(io::IO)
+function read_runfile_header(io::IO, ::Type{T}=UInt32) where T <: Integer
     nrow = read(io, UInt64)
     ncol = read(io, UInt64)
     n_pt = read(io, UInt64)
@@ -272,36 +272,36 @@ function read_runfile_header(io::IO)
     read!(io, fips)
 
     # demographics for of each tract
-    demo = Matrix{UInt16}(undef, nrow, ncol_demog)
+    demo = Matrix{T}(undef, nrow, ncol_demog)
     read!(io, demo)
 
     return nrow, ncol, n_pt, col_names, fips,
-        EpicastTable{2}(run_index(demo_names), demo)
+        EpicastTable{T,2}(run_index(demo_names), demo)
 end
 # ============================================================================ #
-function read_runfile(ifile::AbstractString)
+function read_runfile(ifile::AbstractString, ::Type{T}=UInt32) where T <: Integer
     m = match(r".*run_(\d+)\.bin$", ifile)
     m == nothing && error("failed to parse run number, is this a transitions file?")
     run = m[1]
     return open(ifile, "r") do io
 
-        nrow, ncol, n_pt, col_names, fips, demo = read_runfile_header(io)
+        nrow, ncol, n_pt, col_names, fips, demo = read_runfile_header(io, T)
 
         pos = position(io)
         seekend(io)
         nbytes = position(io) - pos
 
-        @assert((nbytes % (nrow * ncol * sizeof(UInt16))) == 0,
+        @assert((nbytes % (nrow * ncol * sizeof(UInt32))) == 0,
             "invalid data block size!")
 
         seek(io, pos)
 
-        data = Array{UInt16,3}(undef, nrow, ncol, n_pt)
+        data = Array{T,3}(undef, nrow, ncol, n_pt)
         read!(io, data)
 
-        return RunData(
+        return RunData{T}(
             demo,
-            EpicastTable{3}(run_index(col_names), data),
+            EpicastTable{T,3}(run_index(col_names), data),
             fips,
             m[1]
         )
@@ -348,7 +348,7 @@ function RunData(demog::EpicastTable{2}, data::Vector{AgentTransition},
 
     mp = Dict{UInt64,Int}(id => k for (k,id) in enumerate(fips))
 
-    tmp = zeros(UInt16, length(fips), 1, n_pt)
+    tmp = zeros(UInt32, length(fips), 1, n_pt)
 
     for d in data
         r = mp[tract_fips(d)]

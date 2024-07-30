@@ -29,12 +29,12 @@ function create_db(idir::AbstractString, up_dir::AbstractString,
         data[k], ref = read_file_data(joinpath(idir, "us-counties-$(yr).csv"), upc, county_data)
     end
 
-    all_data = vcat(data...)
+    all_data = permutedims(vcat(data...), (2,1))
 
     open(ofile, "w") do io
 
-        write(io, UInt64(size(all_data, 1))) # # of time points
-        write(io, UInt64(size(all_data, 2))) # # of counties
+        write(io, UInt64(size(all_data, 1))) # # of counties
+        write(io, UInt64(size(all_data, 2))) # # of time points        
         write(io, Vector{UInt8}("20200121\0")) # reference date
         write(io, UInt16.(cnty)) # county FIPS as UInt16 in order
         
@@ -120,7 +120,7 @@ function read_file_data(ifile::AbstractString, cnty::Dict{Int,Int}, pop::Dict{In
             cols = Int[cnty[x] for x in cntys]
             c_pop = Float64[pop[x] for x in cntys]
             for j = 1:n_day
-                tmp = view(data, j, cols)
+                tmp = view(data, j:size(data, 1), cols)
                 if unknown[j,k].cases > 0
                     allocate_unknown!(tmp, unknown[j,k], c_pop, :cases, Datum(1,0))
                 end
@@ -216,25 +216,25 @@ function cumsum_i!(x::AbstractVector{<:Number})
     return x
 end
 # ============================================================================ #
-function allocate_unknown!(data::AbstractVector{Datum}, un::Datum,
+function allocate_unknown!(data::AbstractMatrix{Datum}, un::Datum,
     pop::Vector{Float64}, field::Symbol, tmp::Datum)
 
-    idx = findall(isequal(0), getfield.(data, field))
-    idx = isempty(idx) ? collect(1:length(data)) : idx
+    idx = findall(isequal(0), getfield.(view(data, 1, :), field))
+    idx = isempty(idx) ? collect(1:size(data, 2)) : idx
 
     pops = pop[idx]
     pops ./= sum(pops)
     cumsum_i!(pops)
 
-    return allocate_data!(view(data, idx), getfield.(un, field), pops, tmp)
+    return allocate_data!(view(data, :, idx), getfield.(un, field), pops, tmp)
 end
 # ============================================================================ #
-function allocate_data!(data::AbstractVector{Datum}, N::Integer,
+function allocate_data!(data::AbstractMatrix{Datum}, N::Integer,
     cdf::Vector{Float64}, tmp::Datum)
 
     for k in 1:N
         j = inv_sample(cdf)
-        @inbounds data[j] += tmp
+        @inbounds data[:, j] .+= tmp
     end
 
     return data
