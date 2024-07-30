@@ -457,7 +457,7 @@ function make_figure(data::GeoplotData{T}, var::AbstractString;
     return h, ax
 end
 # ============================================================================ #
-function load_polygons(ifile::AbstractString, geo::Set{<:Integer}, level::Integer=1)
+function load_polygons(ifile::AbstractString, geo::AbstractSet{<:Integer}, level::Integer=1)
     tbl = Shapefile.Table(ifile)
     fips = parse.(Int, tbl.GEOID)
     idx = findall(x->in(div(x, level), geo), fips)
@@ -465,7 +465,7 @@ function load_polygons(ifile::AbstractString, geo::Set{<:Integer}, level::Intege
 end
 # ============================================================================ #
 # /Users/palexander/Documents/emerge+radium/geo-data/cb_2019_us_state_500k/cb_2019_us_state_500k.shp
-function state_outlines!(ax, shpfile::AbstractString, states::Set{<:Integer}, color::AbstractString="white")
+function state_outlines!(ax, shpfile::AbstractString, states::AbstractSet{<:Integer}, color::AbstractString="white")
     shps, _ = load_polygons(shpfile, states, 1)
     for shp in shps
         add_state!(ax, shp, edgecolor=color, color="none")
