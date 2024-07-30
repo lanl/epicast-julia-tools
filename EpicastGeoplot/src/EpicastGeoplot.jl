@@ -224,12 +224,14 @@ n_state(g::GeoplotData) = length(g.states)
 column_names(g::GeoplotData) = collect(keys(g.data.var_index))
 # ============================================================================ #
 function geoplot_data(::Type{T}, data_file::AbstractString,
-    prefix::AbstractString=""; norms::Dict{String,String}=Dict{String,String}()) where T <:AbstractShape
+    prefix::AbstractString="", ::Type{S}=UInt32;
+    norms::Dict{String,String}=Dict{String,String}()
+    ) where{T <:AbstractShape, S <: Integer}
 
     if endswith(data_file, ".events.bin")
         data = Epicast.read_eventfile(Epicast.RunData, data_file)
     else
-        data = Epicast.read_runfile(data_file)
+        data = Epicast.read_runfile(data_file, S)
     end
 
     if isempty(prefix)
@@ -243,13 +245,14 @@ function geoplot_data(::Type{T}, data_file::AbstractString,
     return geoplot_data(T, data, names; norms=norms)
 end
 # ---------------------------------------------------------------------------- #
-function geoplot_data(::Type{T}, data_file::AbstractString, pat::Regex;
-    norms::Dict{String,String}=Dict{String,String}()) where T <:AbstractShape
+function geoplot_data(::Type{T}, data_file::AbstractString, pat::Regex,
+        ::Type{S}=UInt32; norms::Dict{String,String}=Dict{String,String}()
+    ) where{T <:AbstractShape, S <: Integer}
 
     if endswith(data_file, ".events.bin")
         data = Epicast.read_eventfile(Epicast.RunData, data_file)
     else
-        data = Epicast.read_runfile(data_file)
+        data = Epicast.read_runfile(data_file, S)
     end
 
     names = Epicast.filter_columns(x -> match(pat, x) != nothing, data.data)
@@ -258,7 +261,9 @@ function geoplot_data(::Type{T}, data_file::AbstractString, pat::Regex;
 end
 # ---------------------------------------------------------------------------- #
 function geoplot_data(::Type{T}, all_data::Epicast.RunData,
-    names::AbstractVector{<:AbstractString}; norms::Dict{String,String}=Dict{String,String}()) where T <:AbstractShape
+    names::AbstractVector{<:AbstractString}, ::Type{S}=UInt32;
+    norms::Dict{String,String}=Dict{String,String}(),
+    ) where{T <:AbstractShape, S <: Integer}
 
     data = data_dict(all_data, names, to_geo(T), norms)
     state_data = data_dict(all_data, names, TRACT2STATE, norms)
