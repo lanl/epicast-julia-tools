@@ -63,7 +63,7 @@ function case_count!(out::AbstractVector, x::Epicast.RunData,
     # Defaults; can be overriden by passing norm manually
     if norm == ""
         if Epicast.has_demographic(x, var)
-            norm = var
+            norm = ("new", var)
 
         elseif endswith(var, r"_age\d")
             # number of new [hospitialized, icu, ventiated, dead] for given age
@@ -79,27 +79,36 @@ function case_count!(out::AbstractVector, x::Epicast.RunData,
             # % of total agents w/in geography that are in given state
             norm = "prop"
 
+        elseif startswith(var, "broadcaster_")
+            # % of broadcasters w/in geography that are in given state
+            norm = ("total", "media_broadcaster")
         else
             # default: total counts per location
-            out .= Epicast.total_cases(in)
+            norm = "default"
         end
     end
 
-    if Epicast.has_demographic(x, norm)
+    if length(norm) == 2 && norm[1] == "new" && Epicast.has_demographic(x, norm[2])
         # number of new cases relative to total size of that demographic
         out .= Epicast.new_cases(in)
-        out ./= sum(view(Epicast.demographics(x, norm), idx))
-        out .*= 1e5
+        out ./= sum(view(Epicast.demographics(x, norm[2]), idx))
+        #out .*= 1e5
+
+    elseif length(norm) == 2 && norm[1] == "total" && Epicast.has_demographic(x, norm[2])
+        # number of total cases relative to total size of that demographic
+        out .= Epicast.total_cases(in)
+        out ./= sum(view(Epicast.demographics(x, norm[2]), idx))
+        #out .*= 1e5
 
     elseif endswith(norm, r"age_\d")
         # number of new [hospitialized, icu, ventiated, dead] for given age
         # group relative to that age group's total population (for each
         # location)
-        age = "age_" * var[end]
+        age = "age_" * norm[end]
 
         out .= Epicast.new_cases(in)
         out ./= sum(view(Epicast.demographics(x, age), idx))
-        out .*= 1e5
+        #out .*= 1e5
 
     elseif norm == "new_cases_prop"
         # % of infections attributable to given context
@@ -110,13 +119,13 @@ function case_count!(out::AbstractVector, x::Epicast.RunData,
         # change in state as a % of total agents w/in geography
         out .= Epicast.new_cases(in)
         out ./= sum(view(Epicast.demographics(x, "total"), idx, :))
-        out .*= 1e5
+        #out .*= 1e5
 
     elseif norm == "prop"
         # % of total agents w/in geography that are in given state
         out .= Epicast.total_cases(in)
         out ./= sum(view(Epicast.demographics(x, "total"), idx))
-        out .*= 1e5
+        #out .*= 1e5
 
     elseif norm == "change"
         # change in state as a % of total agents w/in geography
@@ -461,6 +470,7 @@ function make_figure(data::GeoplotData{T}, var::AbstractString;
 
     return h, ax
 end
+# ============================================================================ #
 # ============================================================================ #
 function load_polygons(ifile::AbstractString, geo::AbstractSet{<:Integer}, level::Integer=1)
     tbl = Shapefile.Table(ifile)
