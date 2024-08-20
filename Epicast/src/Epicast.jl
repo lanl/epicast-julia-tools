@@ -354,7 +354,7 @@ function RunData(demog::EpicastTable{2}, data::Vector{AgentTransition},
 end
 # ============================================================================ #
 struct EventData <: AbstractRunData
-    demog::EpicastTable{2}
+    demog::EpicastTable{UInt32,2}
     events::Vector{AgentTransition}
     fips::Vector{UInt64}
     n_pt::UInt64
@@ -393,7 +393,7 @@ function new_cases(x::AbstractVector{<:Real}, f::Function=sum)
 end
 mean_new_cases(x) = new_cases(x, mean)
 # ============================================================================ #
-function plot_all_multi(data::RunData, odir::AbstractString)
+function plot_all_multi(data::RunData, odir::AbstractString; ext::AbstractString="png")
     PyPlot.ioff()
 
     h, ax = plot_run(data, "total", freduce=mean_new_cases, normalize=true,
@@ -402,7 +402,9 @@ function plot_all_multi(data::RunData, odir::AbstractString)
     ax.get_legend().remove()
     h.tight_layout()
 
-    h.savefig(joinpath(odir, "total-cases_$(data.runno).png"), dpi=200)
+    ext = startswith(ext, '.') ? ext[2:end] : ext
+
+    h.savefig(joinpath(odir, "total-cases_$(data.runno)." * ext), dpi=200)
 
     PyPlot.close(h)
 
@@ -425,7 +427,7 @@ function plot_all_multi(data::RunData, odir::AbstractString)
 
         h.tight_layout()
 
-        h.savefig(joinpath(odir, "demographic-cases_$(data.runno).png"), dpi=200)
+        h.savefig(joinpath(odir, "demographic-cases_$(data.runno)." * ext), dpi=200)
 
         PyPlot.close(h)
     end
@@ -449,7 +451,7 @@ function plot_all_multi(data::RunData, odir::AbstractString)
 
         h.tight_layout()
 
-        h.savefig(joinpath(odir, "treatment-status_$(data.runno).png"), dpi=200)
+        h.savefig(joinpath(odir, "treatment-status_$(data.runno)." * ext), dpi=200)
 
         PyPlot.close(h)
     end
@@ -461,7 +463,7 @@ function plot_all_multi(data::RunData, odir::AbstractString)
 
         h.tight_layout()
 
-        h.savefig(joinpath(odir, "infection-context_$(data.runno).png"), dpi=200)
+        h.savefig(joinpath(odir, "infection-context_$(data.runno)." * ext), dpi=200)
 
         PyPlot.close(h)
     end
@@ -472,7 +474,7 @@ function plot_all_multi(data::RunData, odir::AbstractString)
 
         h.tight_layout()
 
-        h.savefig(joinpath(odir, "infection-status_$(data.runno).png"), dpi=200)
+        h.savefig(joinpath(odir, "infection-status_$(data.runno)." * ext), dpi=200)
 
         PyPlot.close(h)
 
@@ -615,6 +617,41 @@ function plot_run(data::RunData, name::AbstractString; freduce=total_cases,
     !isempty(title) && ax.set_title(title, fontsize=18)
 
     ax.legend(fontsize=14, frameon=false)
+
+    h.tight_layout()
+
+    return h, ax
+end
+# ============================================================================ #
+function plot_infection_src(data::RunData)
+    fields = ["family","work","school","neighborhood-cluster","neighborhood"]
+    total = Epicast.new_cases(Epicast.rundata(data, "total"))
+    d = zeros(Float64, Epicast.n_timepoint(data), length(fields))
+    for k in eachindex(fields)
+        d[:,k] .= Epicast.new_cases(Epicast.rundata(data, "infection-src_" * fields[k]))
+    end
+    d ./= total
+
+    h, ax = subplots(1,1)
+
+    h.set_size_inches((10,6))
+
+    ax.plot(d, linewidth=2.5)
+
+    ax[:spines]["right"].set_visible(false)
+    ax[:spines]["top"].set_visible(false)
+
+    ax[:spines]["left"].set_linewidth(2.5)
+    ax[:spines]["bottom"].set_linewidth(2.5)
+
+    ax.xaxis.set_tick_params(width=2.5)
+    ax.yaxis.set_tick_params(width=2.5)
+
+    ax.legend(fields, fontsize=12, frameon=false, loc="upper left",
+        bbox_to_anchor=(0.9,1.0))
+
+    ax.set_ylabel("Proportion of total cases", fontsize=14)
+    ax.set_xlabel("Simulation time (days)", fontsize=14)
 
     h.tight_layout()
 

@@ -350,6 +350,47 @@ function validate_checkpoint(ck_file::AbstractString, tr_file::AbstractString,
     return n
 end
 # ============================================================================ #
+function count_daygroups(c::Community{CellData,Particle})
+
+    sg_count = zeros(Int, 6)
+    sg_ngrps = zeros(Int, 6)
+    sg_grps = Set{Int}()
+    wg_count = zeros(Int, 1000)
+    wg_ngrps = zeros(Int, 1000)
+    wg_grps = Set{Int}()
+
+    for pt in c.particles
+        school = pt.school
+        naics = pt.naics_code
+        if school > 0
+            sg_count[school] += 1
+            if !in(pt.daygroup, sg_grps)
+                sg_ngrps[school] += 1
+                push!(sg_grps, pt.daygroup)
+            end
+        elseif naics > 0
+            pt.employment < 1 && @warn("Agent $(pt.agent_id) naics > 0 by unemployed?")
+            wg_count[naics] += 1
+            if !in(pt.daygroup, wg_grps)
+                wg_ngrps[naics] += 1
+                push!(wg_grps, pt.daygroup)
+            end
+        end
+    end
+
+    return sg_count ./ sg_ngrps, wg_count ./ wg_ngrps
+end
+# ============================================================================ #
+function validate_daygroups(cp_file::AbstractString, tr_file::AbstractString)
+
+    tracts = UrbanPop.read_tract_file(tr_file)
+
+    data = read_checkpoint_file(cp_file)
+
+
+
+end
+# ============================================================================ #
 end
 #=
 TODO:

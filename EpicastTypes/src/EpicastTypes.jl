@@ -85,6 +85,8 @@ struct Particle <: AbstractParticle
 
     r::SPaSMVector
 
+    agent_id::UInt64
+
     home::SPaSMIVector
     work::SPaSMIVector
     travel::SPaSMIVector
@@ -92,7 +94,7 @@ struct Particle <: AbstractParticle
     trip_timer::UInt8
     nbor_all::UInt8
     nborhood::UInt8
-    workgroup::UInt8
+    daygroup::UInt8
 
     small_workgroup::Int8
 
