@@ -139,5 +139,24 @@ function generate_schoolgroup_file(counties::AbstractVector{<:Integer},
 
     return data
 end
+# ============================================================================ #
+"""
+`counties, data = read_schoolgroup_data(ifile::AbstractString)`
 
+* `counties` - vector of county FIPS codes
+* `data` - a county x school type (i.e. 4) matrix of school group sizes,
+           order is [pre_k, kindergarten, elementary, secondary]
+"""
+function read_schoolgroup_data(ifile::AbstractString)
+    return open(ifile, "r") do io
+        nc = read(io, UInt64)
+        nr = read(io, UInt64)
+        counties = Vector{UInt16}(undef, nc)
+        read!(io, counties)
+        data = Matrix{UInt16}(undef, nr, nc)
+        read!(io, data)
+        return counties, permutedims(data, (2,1))
+    end
+end
+# ============================================================================ #
 end # module SchoolGroups
