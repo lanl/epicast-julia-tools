@@ -630,7 +630,7 @@ function plot_run(data::RunData, name::AbstractString; freduce=total_cases,
     return h, ax
 end
 # ============================================================================ #
-function plot_runs(data::Vector{RunData}, name::AbstractString; freduce=total_cases,
+function plot_runs(data, name::AbstractString; freduce=total_cases,
     normalize::Bool=false, dropname::Bool=false, ylab::String="",
     title::String="", h=nothing, ax=nothing, style::Function=(h, ax) -> nothing,
     dataset_names::AbstractVector{<:AbstractString}=nothing)
