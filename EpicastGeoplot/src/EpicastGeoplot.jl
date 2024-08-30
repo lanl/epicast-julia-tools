@@ -528,15 +528,15 @@ const STATE_FIPS = Dict(
 # ============================================================================ #
 # From: https://www2.census.gov/geo/pdfs/maps-data/maps/reference/us_regdiv.pdf
 const DIVISION_FIPS = Dict(
-    [9,23,25,33,44,50] => "New England",
-    [34,36,42] => "Middle Atlantic",
-    [18,17,26,39,55] => "East North Central",
-    [19, 20,27,29,31,38,46] => "West North Central",
-    [10,11,12,13,24,37,45,51,54] => "South Atlantic",
-    [1,21,28,47] => "East South Central",
-    [5,22,40,48] => "West South Central",
-    [4,8,12,35,30,49,32,56] => "Mountain",
-    [2,6,15,41,53] => "Pacific"
+    [9,23,25,33,44,50] => "NewEng", #"New England",
+    [34,36,42] => "MidAtl", #"Middle Atlantic",
+    [18,17,26,39,55] => "ENCen", #"East North Central",
+    [19, 20,27,29,31,38,46] => "WNCen", #"West North Central",
+    [10,11,12,13,24,37,45,51,54] => "SAtl", #"South Atlantic",
+    [1,21,28,47] => "ESCen", #"East South Central",
+    [5,22,40,48] => "WSCen", #"West South Central",
+    [4,8,12,35,30,49,32,56] => "Mtn", #"Mountain",
+    [2,6,15,41,53] => "Pac", #"Pacific"
 )
 # ============================================================================ #
 end # module EpicastGeoplot
