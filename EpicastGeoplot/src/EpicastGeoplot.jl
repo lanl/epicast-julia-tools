@@ -92,13 +92,13 @@ function case_count!(out::AbstractVector, x::Epicast.RunData,
         # number of new cases relative to total size of that demographic
         out .= Epicast.new_cases(in)
         out ./= sum(view(Epicast.demographics(x, norm[2]), idx))
-        #out .*= 1e5
+        out .*= 1e5
 
     elseif length(norm) == 2 && norm[1] == "total" && Epicast.has_demographic(x, norm[2])
         # number of total cases relative to total size of that demographic
         out .= Epicast.total_cases(in)
         out ./= sum(view(Epicast.demographics(x, norm[2]), idx))
-        #out .*= 1e5
+        out .*= 1e5
 
     elseif endswith(norm, r"age_\d")
         # number of new [hospitialized, icu, ventiated, dead] for given age
@@ -108,7 +108,7 @@ function case_count!(out::AbstractVector, x::Epicast.RunData,
 
         out .= Epicast.new_cases(in)
         out ./= sum(view(Epicast.demographics(x, age), idx))
-        #out .*= 1e5
+        out .*= 1e5
 
     elseif norm == "new_cases_prop"
         # % of infections attributable to given context
@@ -119,13 +119,13 @@ function case_count!(out::AbstractVector, x::Epicast.RunData,
         # change in state as a % of total agents w/in geography
         out .= Epicast.new_cases(in)
         out ./= sum(view(Epicast.demographics(x, "total"), idx, :))
-        #out .*= 1e5
+        out .*= 1e5
 
     elseif norm == "prop"
         # % of total agents w/in geography that are in given state
         out .= Epicast.total_cases(in)
         out ./= sum(view(Epicast.demographics(x, "total"), idx))
-        #out .*= 1e5
+        out .*= 1e5
 
     elseif norm == "change"
         # change in state as a % of total agents w/in geography
@@ -375,9 +375,22 @@ function make_figure(data::GeoplotData{T}, var::AbstractString;
 
     nt = n_timepoint(data)
     j = 1
-    for k in sort!(collect(keys(data.state_data.fips_index)))
-        v = data.state_data[k, var]
-        ax[2].plot(0:(nt-1), v, linewidth=2, label=STATE_FIPS[k], color=colors[j],
+
+    states = keys(data.state_data.fips_index)
+    if nstate > 25
+        labels = DIVISION_FIPS
+        regions = keys(labels)
+    else
+        labels = STATE_FIPS
+        regions = collect(states)
+    end
+    for r in regions
+        ks = [r]
+        if length(r) > 0
+            ks = collect(intersect(r, states))
+        end
+        v = sum(map(k -> data.state_data[k, var], ks))
+        ax[2].plot(0:(nt-1), v, linewidth=2, label=labels[r], color=colors[j],
             picker=true)
         j += 1
     end
@@ -388,7 +401,7 @@ function make_figure(data::GeoplotData{T}, var::AbstractString;
     ax[2].set_xlabel("Simulation day", fontsize=14)
     style_line(ax[2])
 
-    ncol = length(data.states) > 25 ? 2 : 1
+    ncol = length(regions) > 25 ? 2 : 1
 
     if vertical
         ax[2].legend(frameon=true, loc="lower left", bbox_to_anchor=(1.02, 0.0), ncol=ncol)
@@ -511,6 +524,19 @@ const STATE_FIPS = Dict(
     41 => "OR", 42 => "PA", 44 => "RI", 45 => "SC", 46 => "SD", 47 => "TN",
     48 => "TX", 49 => "UT", 50 => "VT", 51 => "VA", 53 => "WA", 54 => "WV",
     55 => "WI", 56 => "WY"
+)
+# ============================================================================ #
+# From: https://www2.census.gov/geo/pdfs/maps-data/maps/reference/us_regdiv.pdf
+const DIVISION_FIPS = Dict(
+    [9,23,25,33,44,50] => "New England",
+    [34,36,42] => "Middle Atlantic",
+    [18,17,26,39,55] => "East North Central",
+    [19, 20,27,29,31,38,46] => "West North Central",
+    [10,11,12,13,24,37,45,51,54] => "South Atlantic",
+    [1,21,28,47] => "East South Central",
+    [5,22,40,48] => "West South Central",
+    [4,8,12,35,30,49,32,56] => "Mountain",
+    [2,6,15,41,53] => "Pacific"
 )
 # ============================================================================ #
 end # module EpicastGeoplot
