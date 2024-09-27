@@ -248,4 +248,23 @@ function inv_sample(x::AbstractVector{<:AbstractFloat}, d::Float64=rand())
     return -1
 end
 # ============================================================================ #
+function read_covid_data(ifile::AbstractString)
+
+    open(ifile, "r") do io
+        n_cnty = read(io, UInt64) # # of counties
+        n_tp = read(io, UInt64) # # of time points
+        date = String(read(io, 9)[1:8]) # reference date
+
+        # fips code for each county
+        county_fips = Vector{UInt16}(undef, n_cnty)
+        read!(io, county_fips)
+        
+        data = Matrix{Datum}(undef, n_cnty, n_tp)
+        read!(io, data)
+
+        return data, county_fips, date
+    end
+
+end
+# ============================================================================ #
 end
