@@ -335,14 +335,15 @@ function read_agent_transitions(io::IO)
     return data
 end
 # ============================================================================ #
-function RunData(demog::EpicastTable{2}, data::Vector{AgentTransition},
-    fips::Vector{UInt64}, n_pt::Integer, run::AbstractString)
+function RunData(demog::EpicastTable{T, 2}, data::Vector{AgentTransition},
+    fips::Vector{UInt64}, n_pt::Integer, run::AbstractString) where T
 
     mp = Dict{UInt64,Int}(id => k for (k,id) in enumerate(fips))
 
-    tmp = zeros(UInt32, length(fips), 1, n_pt)
+    tmp = zeros(T, length(fips), 1, n_pt)
 
-    for d in data
+    # count files do not include index cases
+    for d in filter(x -> x.state == 0x01 && x.context != 0xff, data)
         r = mp[tract_fips(d)]
         s = div(d.timestep, 2) + 1
 
@@ -350,7 +351,7 @@ function RunData(demog::EpicastTable{2}, data::Vector{AgentTransition},
         view(tmp, r, 1, s:n_pt) .+= 1
     end
 
-    return RunData(demog, EpicastTable{3}(run_index(["total"]), tmp), fips, run)
+    return RunData{T}(demog, EpicastTable{T,3}(run_index(["total"]), tmp), fips, run)
 end
 # ============================================================================ #
 struct EventData <: AbstractRunData
