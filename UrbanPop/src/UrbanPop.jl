@@ -906,4 +906,73 @@ function locale_counts(ifile::AbstractString)
     return n_county, n_tract
 end
 # ============================================================================ #
+@inline agent_state(id::Integer) = id >> 58
+
+@inline agent_id(id::Integer) = id & ~(UInt64(0b111111) << 58)
+
+function agent_id_lt(a::Integer, b::Integer)
+    return agent_state(a) == agent_state(b) ? agent_id(a) < agent_id(b) :
+        agent_state(a) < agent_state(b)
+end
+# ============================================================================ #
+function fetch_agent_demographics(agent_ids::AbstractVector{T},
+    agent_dir::AbstractString) where T<:Integer
+
+    ks = sortperm(agent_ids, lt=agent_id_lt)
+    ids = agent_ids[ks]
+    all_states = agent_state.(ids)
+    states = unique(all_states)
+
+    # out = Dict{T, Agent}()
+    out = Vector{Agent}(undef, length(agent_ids))
+    kf = 1
+    for state in states
+        raw = memmap(joinpath(agent_dir, lpad(state, 2, '0') * ".agents.bin"))
+        kl = searchsortedlast(all_states, state)
+        for k in kf:kl
+            out[k] = raw[agent_id(ids[k]) + 1]
+        end
+        kf = kl + 1
+    end
+
+    return out[invperm(ks)]
+end
+# ============================================================================ #
+@inline bgstr2tract(x::AbstractString) = div(parse(Int, x), 10)
+# ============================================================================ #
+function dt_nt_get_populations(idir::AbstractString)
+
+    files = find_files(idir, r".*\.feather$")
+
+    var_index = Dict{String,Int}("nighttime" => 1, "daytime" => 2)
+
+
+    out = [Dict{UInt64,Int}(), Dict{UInt64,Int}()]
+    for file in files
+        tbl = Arrow.Table(file)
+
+        for (k,field) in enumerate([:orig_geoid, :dest_geoid])
+            all_tracts = map(bgstr2tract, tbl[field])
+            tracts = unique()
+
+            for tract in tracts
+                out[k][tract] = get(out, tract, 0) + count(isequal(tract), all_tracts)
+            end
+        end
+    end
+
+    all_fips = sort!(union(collect(keys(out[1])), collect(keys(out[2])))
+
+    fips_index = Dict{UInt64,Int}(x => k for (k,v) in enumerate(all_fips)))
+    data = zeros(Float64, length(fips_index), 2)
+
+    for k in 1:length(out)
+        for (j,v) in out[k]
+            data[fips_index[j],k] = v
+        end
+    end
+
+    return data, fips_index, var_index
+end
+# ============================================================================ #
 end # module UrbanPop
