@@ -266,17 +266,18 @@ quantile_threshold(::Type{CountyPolygon}) = 0.999
 quantile_threshold(::Type{TractPoint}) = 0.99
 # ============================================================================ #
 function make_figure(data::GeoplotData{T}; ofile::AbstractString="",
-    maxq::Real=quantile_threshold(T), frame::Integer=1, vertical::Bool=false) where T<:AbstractShape
+    maxq::Real=quantile_threshold(T), frame::Integer=1, vertical::Bool=false,
+    smooth::Bool=false) where T<:AbstractShape
 
     var = first(keys(data.data.var_index))
 
     return make_figure(data, var, ofile=ofile, maxq=maxq, frame=frame,
-        vertical=vertical)
+        vertical=vertical, smooth=smooth)
 end
 # ---------------------------------------------------------------------------- #
 function make_figure(data::GeoplotData{T}, var::AbstractString;
     ofile::AbstractString="", maxq::Real=quantile_threshold(T),
-    frame::Integer=1, vertical::Bool=false) where T<:AbstractShape
+    frame::Integer=1, vertical::Bool=false, smooth::Bool=false) where T<:AbstractShape
 
     state_shp = joinpath(DATADIR, "cb_2019_us_state_500k.shp")
 
@@ -320,11 +321,18 @@ function make_figure(data::GeoplotData{T}, var::AbstractString;
         distinguishable_colors(nstate, [RGB(1,1,1), RGB(0,0,0)],
             dropseed=true)
     )
-
+    smooth && @info("smoothing...")
     nt = n_timepoint(data)
     j = 1
     for k in sort!(collect(keys(data.state_data.fips_index)))
         v = data.state_data[k, var]
+        if smooth
+            v = copy(v)
+            for k = 8:length(v)
+                # idx = k < 8 ? (1:k) : (k-7:k)
+                v[k] = mean(v[k-7:k])
+            end
+        end
         ax[2].plot(0:(nt-1), v, linewidth=2, label=STATE_FIPS[k], color=colors[j],
             picker=true)
         j += 1
