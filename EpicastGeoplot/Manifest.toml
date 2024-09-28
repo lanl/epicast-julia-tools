@@ -2,7 +2,7 @@
 
 julia_version = "1.10.4"
 manifest_format = "2.0"
-project_hash = "d68827b4876a55a2e481cb7b242a4711b84f3ba4"
+project_hash = "3a6845677dc5ad5c2af5d4b670fc1440f7b52aab"
 
 [[deps.ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
@@ -86,9 +86,14 @@ uuid = "5ae413db-bbd1-5e63-b57d-d24a61df00f5"
 version = "2.2.4+0"
 
 [[deps.Epicast]]
-deps = ["Colors", "DelimitedFiles", "PyPlot", "Statistics"]
+deps = ["Colors", "DelimitedFiles", "EpicastTables", "PyPlot", "Statistics"]
 path = "../Epicast"
 uuid = "cbb96616-a3d1-4d5e-a40b-9319cdaf6efd"
+version = "0.1.0"
+
+[[deps.EpicastTables]]
+path = "../EpicastTables"
+uuid = "7f8b32be-ad0a-4d41-97a2-963287e4efb7"
 version = "0.1.0"
 
 [[deps.Extents]]

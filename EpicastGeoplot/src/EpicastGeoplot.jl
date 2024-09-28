@@ -2,7 +2,7 @@ module EpicastGeoplot
 
 using Shapefile, PyPlot, Colors, Printf, Statistics
 
-using Epicast
+using Epicast, EpicastTables
 
 using PyCall
 
@@ -17,48 +17,48 @@ end
 const DATADIR = joinpath(@__DIR__, "..", "assets", "geo-data", "data")
 
 # ============================================================================ #
-struct FIPSTable{N}
-    fips_index::Dict{UInt64,Int}
-    var_index::Dict{String,Int}
-    data::Array{Float64,N}# time x fips x var
-end
-all_fips(f::FIPSTable) = collect(keys(f.fips_index))
-has_fips(f::FIPSTable, fips::Integer) = haskey(f.fips_index, fips)
-Base.getindex(f::FIPSTable{2}, fips::Integer) = view(f.data, :, f.fips_index[fips]) #f.data[:,f.fips_index[k]]
-Base.getindex(f::FIPSTable{3}, fips::Integer, var::AbstractString) = view(f.data, :, f.fips_index[fips], f.var_index[var])
-Base.getindex(f::FIPSTable{3}, var::AbstractString) = view(f.data, :, :, f.var_index[var])
+# struct FIPSTable{N}
+#     fips_index::Dict{UInt64,Int}
+#     var_index::Dict{String,Int}
+#     data::Array{Float64,N}# time x fips x var
+# end
+# all_fips(f::FIPSTable) = collect(keys(f.fips_index))
+# has_fips(f::FIPSTable, fips::Integer) = haskey(f.fips_index, fips)
+# Base.getindex(f::FIPSTable{2}, fips::Integer) = view(f.data, :, f.fips_index[fips]) #f.data[:,f.fips_index[k]]
+# Base.getindex(f::FIPSTable{3}, fips::Integer, var::AbstractString) = view(f.data, :, f.fips_index[fips], f.var_index[var])
+# Base.getindex(f::FIPSTable{3}, var::AbstractString) = view(f.data, :, :, f.var_index[var])
 
-struct FIPSTableIterator
-    data::FIPSTable{3}
-    var::String
-end
+# struct FIPSTableIterator
+#     data::FIPSTable{3}
+#     var::String
+# end
 
-function Base.iterate(f::FIPSTable{2}, k::Integer=1)
-    tmp = iterate(f.fips_index, k)
-    tmp == nothing && return tmp
-    return (tmp[1].first, f[tmp[1].second]), tmp[2]
-end
-Base.IteratorSize(::FIPSTable) = Base.HasLength()
-Base.IteratorEltype(::FIPSTable) = Base.HasEltype()
-Base.length(g::FIPSTable) = length(g.fips_index)
+# function Base.iterate(f::FIPSTable{2}, k::Integer=1)
+#     tmp = iterate(f.fips_index, k)
+#     tmp == nothing && return tmp
+#     return (tmp[1].first, f[tmp[1].second]), tmp[2]
+# end
+# Base.IteratorSize(::FIPSTable) = Base.HasLength()
+# Base.IteratorEltype(::FIPSTable) = Base.HasEltype()
+# Base.length(g::FIPSTable) = length(g.fips_index)
 
-# Base.eltype(::FIPSTable{2}) = Tuple{UInt64,SubArray{Float64, 1, Matrix{Float64}, Tuple{Base.Slice{Base.OneTo{Int64}}, Int64}, true}}
-Base.eltype(::FIPSTable{N}) where N = Tuple{UInt64,SubArray{Float64, 1, Array{Float64,N}, Tuple{Base.Slice{Base.OneTo{Int64}}, Int64}, true}}
+# # Base.eltype(::FIPSTable{2}) = Tuple{UInt64,SubArray{Float64, 1, Matrix{Float64}, Tuple{Base.Slice{Base.OneTo{Int64}}, Int64}, true}}
+# Base.eltype(::FIPSTable{N}) where N = Tuple{UInt64,SubArray{Float64, 1, Array{Float64,N}, Tuple{Base.Slice{Base.OneTo{Int64}}, Int64}, true}}
 
-eachfips(f::FIPSTable{2}) = f
+# eachfips(f::FIPSTable{2}) = f
 
-eachfips(f::FIPSTable{3}, var::AbstractString) = FIPSTableIterator(f, var)
+# eachfips(f::FIPSTable{3}, var::AbstractString) = FIPSTableIterator(f, var)
 
-function Base.iterate(f::FIPSTableIterator, k::Integer=1)
-    tmp = iterate(f.fips_index, k)
-    tmp == nothing && return tmp
-    return (tmp[1].first, f.data[tmp[1].second, f.var]), tmp[2]
-end
+# function Base.iterate(f::FIPSTableIterator, k::Integer=1)
+#     tmp = iterate(f.fips_index, k)
+#     tmp == nothing && return tmp
+#     return (tmp[1].first, f.data[tmp[1].second, f.var]), tmp[2]
+# end
 # ============================================================================ #
 function case_count!(out::AbstractVector, x::Epicast.RunData,
     var::AbstractString, idx::AbstractVector{<:Integer})
 
-    in = view(Epicast.rundata(x, var), idx, :)
+    in = view(Epicast.rundata(x, var), :, idx)
 
     if Epicast.has_demographic(x, var)
         # number of new cases relative to total size of that demographic
@@ -96,7 +96,7 @@ function case_count!(out::AbstractVector, x::Epicast.RunData,
 end
 # ============================================================================ #
 function data_dict(data::Epicast.RunData, names::Vector{<:AbstractString},
-    conv::Integer=TRACT2COUNTY)
+    conv::Integer=EpicastTables.TRACT2COUNTY)
 
     if conv > 1
         # dat is: time x fips x var
@@ -121,7 +121,7 @@ function data_dict(data::Epicast.RunData, names::Vector{<:AbstractString},
 
     idx = Dict{UInt64,Int}(grp[k] => k for k in eachindex(grp))
     var = Dict{String,Int}(names[k] => k for k in eachindex(names))
-    return FIPSTable{3}(idx, var, dat)
+    return FIPSTable(dat, idx, var)
 end
 # ============================================================================ #
 function largest_part(poly::Shapefile.Polygon)
@@ -165,9 +165,9 @@ struct TractPoint <: AbstractShape end
 
 shape_file(::Type{CountyPolygon}) = joinpath(DATADIR, "cb_2019_us_county_5m.shp")
 shape_file(::Type{TractPoint}) = joinpath(DATADIR, "cb_2019_us_tract_500k.shp")
-to_state(::Type{CountyPolygon}) = COUNTY2STATE
-to_state(::Type{TractPoint}) = TRACT2STATE
-to_geo(::Type{CountyPolygon}) = TRACT2COUNTY
+to_state(::Type{CountyPolygon}) = EpicastTables.COUNTY2STATE
+to_state(::Type{TractPoint}) = EpicastTables.TRACT2STATE
+to_geo(::Type{CountyPolygon}) = EpicastTables.TRACT2COUNTY
 to_geo(::Type{TractPoint}) = 1
 state_color(::Type{CountyPolygon}) = "white"
 state_color(::Type{TractPoint}) = "black"
@@ -176,8 +176,8 @@ struct GeoplotData{T<:AbstractShape}
     shps::Vector{Shapefile.Polygon}
     fips::Vector{UInt64}
     states::Set{UInt64}
-    data::FIPSTable{3}
-    state_data::FIPSTable{3}
+    data::FIPSTable{Float64,3}
+    state_data::FIPSTable{Float64,3}
 end
 data_matrix(g::GeoplotData, var::AbstractString) = g.data[var]
 data_matrix(g::GeoplotData) = data_matrix(g, first(keys(g.data.var_index)))
@@ -199,7 +199,7 @@ function geoplot_data(::Type{T}, data_file::AbstractString,
 
     if isempty(prefix)
         names = sort!(Epicast.column_names(data))
-    elseif haskey(data.data.index, prefix)
+    elseif EpicastTables.has_var(data.data, prefix)
         names = [prefix]
     else
         names = Epicast.filter_columns(x -> startswith(x, prefix), data.data)
@@ -225,9 +225,9 @@ function geoplot_data(::Type{T}, all_data::Epicast.RunData,
     names::AbstractVector{<:AbstractString}) where T <:AbstractShape
 
     data = data_dict(all_data, names, to_geo(T))
-    state_data = data_dict(all_data, names, TRACT2STATE)
+    state_data = data_dict(all_data, names, EpicastTables.TRACT2STATE)
 
-    states = Set(all_fips(state_data))
+    states = Set(EpicastTables.all_fips(state_data))
 
     shps, fips = load_polygons(shape_file(T), states, to_state(T))
 
@@ -241,7 +241,7 @@ function geoplot_data(::Type{T}, all_data::Epicast.RunData,
 end
 # ============================================================================ #
 function draw_shapes!(ax, data::GeoplotData{CountyPolygon}, var::AbstractString,
-    cm::ColorMap, ext::Tuple{Float64,Float64})
+    cm::ColorMap, ext::Tuple{Float64,Float64}, frame::Integer=1)
 
     polys = Vector{Matrix{Float64}}(undef, n_shape(data))
     for k in 1:n_shape(data)
@@ -249,21 +249,105 @@ function draw_shapes!(ax, data::GeoplotData{CountyPolygon}, var::AbstractString,
         pts = view(data.shps[k].points, ks:ke)
         polys[k] = [getfield.(pts, :x) getfield.(pts, :y)]
     end
-    c = map(x -> (data.data[x, var][1] - ext[1]) / ext[2], data.fips)
+    c = map(x -> (data.data[x, var][frame] - ext[1]) / ext[2], data.fips)
     hp = matplotlib.collections.PolyCollection(polys, facecolor=cm(c))
     ax.add_collection(hp)
     return hp
 end
 # ============================================================================ #
 function draw_shapes!(ax, data::GeoplotData{TractPoint}, var::AbstractString,
-    cm::ColorMap, ext::Tuple{Float64,Float64})
+    cm::ColorMap, ext::Tuple{Float64,Float64}, frame::Integer=1)
     
     xy = centroid.(data.shps)
-    c = map(x -> (data.data[x, var][1] - ext[1]) / ext[2], data.fips)
+    c = map(x -> (data.data[x, var][frame] - ext[1]) / ext[2], data.fips)
     return ax.scatter(getindex.(xy, 1), getindex.(xy, 2), 3.0, c=cm(c))
 end
 quantile_threshold(::Type{CountyPolygon}) = 0.999
 quantile_threshold(::Type{TractPoint}) = 0.99
+# ============================================================================ #
+function map_figure(data::GeoplotData{T}, var::AbstractString, frame::Integer;
+    maxq::Real=quantile_threshold(T)) where T<:AbstractShape
+    
+    h, ax = subplots(1,1)
+    add_map!(ax, data, var, frame, maxq=maxq)
+    return h, ax
+end
+# ============================================================================ #
+function add_map!(ax::PyCall.PyObject, data::GeoplotData{T}, var::AbstractString,
+    frame::Integer; maxq::Real=quantile_threshold(T)) where T<:AbstractShape
+    
+    state_shp = joinpath(DATADIR, "cb_2019_us_state_500k.shp")
+
+    data_mat = data_matrix(data, var)
+    mn = minimum(data_mat)
+    mx = quantile(vec(data_mat), maxq)
+
+    cm = PyPlot.get_cmap("viridis")
+
+    hp = draw_shapes!(ax, data, var, cm, (mn, mx), frame)
+
+    state_outlines!(ax, state_shp, data.states, state_color(T))
+
+    ax.set_title("Day $(frame-1)", fontsize=18)
+
+    foreach(ax.spines) do k
+        ax.spines[k].set_visible(false)
+    end
+
+    ax.set_yticks([])
+    ax.set_xticks([])
+
+    return mn, mx, cm, hp
+end
+# ============================================================================ #
+function add_state_timeseries!(ax, data::GeoplotData{T}, var::AbstractString,
+    frame::Integer=1, smooth::Bool=false, vertical::Bool=false) where T<:AbstractShape
+
+    nstate = n_state(data)
+
+    colors = map(col -> (red(col), green(col), blue(col)), 
+        distinguishable_colors(nstate, [RGB(1,1,1), RGB(0,0,0)],
+            dropseed=true)
+    )
+
+    smooth && @info("smoothing...")
+
+    nt = n_timepoint(data)
+    j = 1
+    for k in sort!(all_states(data.state_data))
+        v = data.state_data[k, var]
+        if smooth
+            v = copy(v)
+            for k = 8:length(v)
+                # idx = k < 8 ? (1:k) : (k-7:k)
+                v[k] = mean(v[k-7:k])
+            end
+        end
+        ax.plot(0:(nt-1), v, linewidth=2, label=STATE_FIPS[k], color=colors[j],
+            picker=true)
+        j += 1
+    end
+
+    ax.spines["right"].set_visible(false)
+    ax.spines["top"].set_visible(false)
+    ax.set_ylabel("New cases per 100k residents", fontsize=14)
+    ax.set_xlabel("Simulation day", fontsize=14)
+
+    ncol = length(data.states) > 25 ? 2 : 1
+
+    if vertical
+        ax.legend(frameon=true, loc="lower left", bbox_to_anchor=(1.02, 0.0), ncol=ncol)
+    else
+        ax.legend(frameon=true, loc="upper left", bbox_to_anchor=(1.02, 1.0), ncol=ncol)
+    end
+
+    ax.set_title(" ", fontsize=18)
+    mx2 = maximum(maximum, state_data_matrix(data, var))
+
+    time_idc = ax.plot([frame-1,frame-1],[0,mx2], "--", color="darkgray", linewidth=2)[1]
+
+    return mx2, time_idc
+end
 # ============================================================================ #
 function make_figure(data::GeoplotData{T}; ofile::AbstractString="",
     maxq::Real=quantile_threshold(T), frame::Integer=1, vertical::Bool=false,
@@ -279,13 +363,9 @@ function make_figure(data::GeoplotData{T}, var::AbstractString;
     ofile::AbstractString="", maxq::Real=quantile_threshold(T),
     frame::Integer=1, vertical::Bool=false, smooth::Bool=false) where T<:AbstractShape
 
-    state_shp = joinpath(DATADIR, "cb_2019_us_state_500k.shp")
+    nt = n_timepoint(data)
 
-    data_mat = data_matrix(data, var)
-    mn = minimum(data_mat)
-    mx = quantile(vec(data_mat), maxq)
-
-    cm = PyPlot.get_cmap("viridis")
+    @assert(1 < frame <= nt, "give frame $(frame) is out-of-bounds")
 
     nstate = n_state(data)
     width = nstate > 25 ? 15 : 14
@@ -304,60 +384,14 @@ function make_figure(data::GeoplotData{T}, var::AbstractString;
         h.set_size_inches((width,6.5))
     end
 
-    hp = draw_shapes!(ax[1], data, var, cm, (mn, mx))
+    mn, mx, cm, hp = add_map!(ax[1], data, var, frame, maxq=maxq)
 
-    state_outlines!(ax[1], state_shp, data.states, state_color(T))
-
-    ax[1].set_title("Day 0", fontsize=18)
-
-    foreach(ax[1].spines) do k
-        ax[1].spines[k].set_visible(false)
-    end
-
-    ax[1].set_yticks([])
-    ax[1].set_xticks([])
-
-    colors = map(col -> (red(col), green(col), blue(col)), 
-        distinguishable_colors(nstate, [RGB(1,1,1), RGB(0,0,0)],
-            dropseed=true)
-    )
-    smooth && @info("smoothing...")
-    nt = n_timepoint(data)
-    j = 1
-    for k in sort!(collect(keys(data.state_data.fips_index)))
-        v = data.state_data[k, var]
-        if smooth
-            v = copy(v)
-            for k = 8:length(v)
-                # idx = k < 8 ? (1:k) : (k-7:k)
-                v[k] = mean(v[k-7:k])
-            end
-        end
-        ax[2].plot(0:(nt-1), v, linewidth=2, label=STATE_FIPS[k], color=colors[j],
-            picker=true)
-        j += 1
-    end
-
-    ax[2].spines["right"].set_visible(false)
-    ax[2].spines["top"].set_visible(false)
-    ax[2].set_ylabel("New cases per 100k residents", fontsize=14)
-    ax[2].set_xlabel("Simulation day", fontsize=14)
-
-    ncol = length(data.states) > 25 ? 2 : 1
-
-    if vertical
-        ax[2].legend(frameon=true, loc="lower left", bbox_to_anchor=(1.02, 0.0), ncol=ncol)
-    else
-        ax[2].legend(frameon=true, loc="upper left", bbox_to_anchor=(1.02, 1.0), ncol=ncol)
-    end
-    ax[2].set_title(" ", fontsize=18)
-    mx2 = maximum(maximum, state_data_matrix(data, var))
-
-    time_idc = ax[2].plot([0,0],[0,mx2], "--", color="darkgray", linewidth=2)[1]
+    mx2, time_idc = add_state_timeseries!(ax[2], data, var, frame, smooth,
+        vertical)
 
     county_line = nothing
 
-    IDX = 1
+    IDX = frame
 
     update_figure(idx::Integer) = begin
         # t0 = time()
@@ -408,8 +442,6 @@ function make_figure(data::GeoplotData{T}, var::AbstractString;
         bb = ax[1].get_position()
         ax[1].set_position([0.02, bb.y0, 0.9, bb.height])
     end
-
-    (1 < frame <= nt) && update_figure(frame)
 
     if !isempty(ofile)
         if endswith(ofile, ".mp4")
