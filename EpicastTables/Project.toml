@@ -1,0 +1,4 @@
+name = "EpicastTables"
+uuid = "7f8b32be-ad0a-4d41-97a2-963287e4efb7"
+authors = ["Scottie Alexander <palexander@lanl.gov>"]
+version = "0.1.0"
