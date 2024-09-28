@@ -5,6 +5,7 @@ version = "0.1.0"
 
 [deps]
 Arrow = "69666777-d1a9-59fb-9406-91d4454c9d45"
+EpicastTables = "7f8b32be-ad0a-4d41-97a2-963287e4efb7"
 Mmap = "a63ad114-7e13-5084-954f-fe012c677804"
 Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 Query = "1a8c2f83-1ff3-5112-b086-8aa67b057ba1"

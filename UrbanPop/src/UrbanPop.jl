@@ -4,6 +4,8 @@ using Mmap, SHA
 
 using Arrow, Tables, Printf, Query
 
+using EpicastTables
+
 const NAICS_DIGITS = 3
 # ============================================================================ #
 struct Agent
@@ -953,7 +955,7 @@ function dt_nt_get_populations(idir::AbstractString)
 
         for (k,field) in enumerate([:orig_geoid, :dest_geoid])
             all_tracts = map(bgstr2tract, tbl[field])
-            tracts = unique()
+            tracts = unique(all_tracts)
 
             for tract in tracts
                 out[k][tract] = get(out, tract, 0) + count(isequal(tract), all_tracts)
@@ -961,10 +963,10 @@ function dt_nt_get_populations(idir::AbstractString)
         end
     end
 
-    all_fips = sort!(union(collect(keys(out[1])), collect(keys(out[2])))
+    all_fips = sort!(union(collect(keys(out[1])), collect(keys(out[2]))))
 
-    fips_index = Dict{UInt64,Int}(x => k for (k,v) in enumerate(all_fips)))
-    data = zeros(Float64, length(fips_index), 2)
+    fips_index = Dict{UInt64,Int}(v => k for (k,v) in enumerate(all_fips))
+    data = zeros(Int, length(fips_index), 2)
 
     for k in 1:length(out)
         for (j,v) in out[k]
@@ -972,7 +974,7 @@ function dt_nt_get_populations(idir::AbstractString)
         end
     end
 
-    return data, fips_index, var_index
+    return FIPSTable(data, fips_index, var_index)
 end
 # ============================================================================ #
 end # module UrbanPop
