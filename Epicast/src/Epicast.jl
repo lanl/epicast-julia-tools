@@ -2,11 +2,8 @@ module Epicast
 
 using DelimitedFiles, PyPlot, Colors, Statistics
 
-const TRACT2STATE = 10^9
-const TRACT2COUNTY = 10^6
-const COUNTY2STATE = 10^3
+using EpicastTables
 
-export TRACT2STATE, TRACT2COUNTY, COUNTY2STATE
 # ============================================================================ #
 function epi_plot(idir::AbstractString, run::Integer=2)
 
@@ -147,38 +144,23 @@ function parse_attackfile(ifile::AbstractString)
     return readdlm(ifile, skipstart=1)
 end
 # ============================================================================ #
-function run_index(names::AbstractVector{<:AbstractString})
-    return Dict{String,Int}(y => x for (x,y) in enumerate(names))
+function run_index(items::AbstractVector{T}) where T
+    return Dict{T,Int}(y => x for (x,y) in enumerate(items))
 end
-# ============================================================================ #
-struct EpicastTable{T,N}
-    index::Dict{String,Int}
-    data::Array{T,N}
-end
-Base.getindex(x::EpicastTable{<:Any,2}, s::AbstractString) = view(x.data, :, x.index[s])#x.data[:, x.index[s]]
-Base.getindex(x::EpicastTable{<:Any,3}, s::AbstractString) = view(x.data, :, x.index[s], :)#x.data[:, x.index[s], :]
-function match_columns(f::Function, x::EpicastTable)
-    idx = Vector{Int}(undef, 0)
-    for key in keys(x.index)
-        f(key) && push!(idx, x.index[key])
-    end
-    return sort!(idx)
-end
-filter_columns(f::Function, x::EpicastTable) = sort!(filter(f, collect(keys(x.index))))
 # ============================================================================ #
 abstract type AbstractRunData end
 # ============================================================================ #
 struct RunData{T} <: AbstractRunData
-    demog::EpicastTable{T,2}
-    data::EpicastTable{T,3}
+    demog::FIPSTable{T,2}
+    data::FIPSTable{T,3}
     fips::Vector{UInt64}
     runno::String
 end
 rundata(x::RunData, s::AbstractString) = x.data[s]
-has_data(x::RunData, s::AbstractString) = haskey(x.data.index, s)
+has_data(x::RunData, s::AbstractString) = EpicastTables.has_var(x.data, s)
 demographics(x::RunData, s::AbstractString) = x.demog[s]
-n_timepoint(x::RunData) = size(x.data.data, 3)
-has_demographic(x::RunData, s::AbstractString) = haskey(x.demog.index, s)
+n_timepoint(x::RunData) = size(x.data.data, 1)
+has_demographic(x::RunData, s::AbstractString) = EpicastTables.has_var(x.demog, s)
 function data_groups(x::RunData)
     names = Set{String}()
     for k in keys(x.data.index)
@@ -253,7 +235,7 @@ function read_runfile_header(io::IO, ::Type{T}=UInt32) where T <: Integer
 
     demo_buf = Vector{UInt8}(undef, demo_len)
     read!(io, demo_buf)
-    demo_names = split(String(demo_buf), '\0', keepempty=false)
+    demo_names = map(string, split(String(demo_buf), '\0', keepempty=false))
 
     col_buf = Vector{UInt8}(undef, col_len)
     read!(io, col_buf)
@@ -268,7 +250,7 @@ function read_runfile_header(io::IO, ::Type{T}=UInt32) where T <: Integer
     read!(io, demo)
 
     return nrow, ncol, n_pt, col_names, fips,
-        EpicastTable{T,2}(run_index(demo_names), demo)
+        FIPSTable(demo, run_index(fips), run_index(demo_names))
 end
 # ============================================================================ #
 function read_runfile(ifile::AbstractString, ::Type{T}=UInt32) where T <: Integer   
@@ -293,7 +275,8 @@ function read_runfile(ifile::AbstractString, ::Type{T}=UInt32) where T <: Intege
 
         return RunData{T}(
             demo,
-            EpicastTable{T,3}(run_index(col_names), data),
+            FIPSTable(permutedims(data, (3,1,2)), run_index(fips),
+                run_index(map(string, col_names))),
             fips,
             m[1]
         )
@@ -335,12 +318,12 @@ function read_agent_transitions(io::IO)
     return data
 end
 # ============================================================================ #
-function RunData(demog::EpicastTable{T, 2}, data::Vector{AgentTransition},
+function RunData(demog::FIPSTable{T,2}, data::Vector{AgentTransition},
     fips::Vector{UInt64}, n_pt::Integer, run::AbstractString) where T
 
     mp = Dict{UInt64,Int}(id => k for (k,id) in enumerate(fips))
 
-    tmp = zeros(T, length(fips), 1, n_pt)
+    tmp = zeros(T, n_pt, length(fips), 1)
 
     # count files do not include index cases
     for d in filter(x -> x.state == 0x01 && x.context != 0xff, data)
@@ -348,14 +331,19 @@ function RunData(demog::EpicastTable{T, 2}, data::Vector{AgentTransition},
         s = div(d.timestep, 2) + 1
 
         # count files store data as cumulative sum, so compute that as we go
-        view(tmp, r, 1, s:n_pt) .+= 1
+        view(tmp, s:n_pt, r, 1) .+= 1
     end
 
-    return RunData{T}(demog, EpicastTable{T,3}(run_index(["total"]), tmp), fips, run)
+    return RunData{T}(
+        demog,
+        FIPSTable(tmp, run_index(fips), run_index(["total"])),
+        fips,
+        run
+    )
 end
 # ============================================================================ #
 struct EventData <: AbstractRunData
-    demog::EpicastTable{UInt32,2}
+    demog::FIPSTable{UInt32,2}
     events::Vector{AgentTransition}
     fips::Vector{UInt64}
     n_pt::UInt64
@@ -380,10 +368,10 @@ end
 read_eventfile(ifile::AbstractString) = read_eventfile(RunData, ifile)
 # ============================================================================ #
 total_cases(x::AbstractVector{<:Real}) = x
-total_cases(x::AbstractMatrix{<:Real}) = dropdims(sum(x, dims=1),dims=1)
+total_cases(x::AbstractMatrix{<:Real}) = dropdims(sum(x, dims=2),dims=2)
 # ============================================================================ #
 function new_cases(x::AbstractMatrix{<:Real}, f::Function=sum)
-    out = dropdims(f(x, dims=1),dims=1)
+    out = dropdims(f(x, dims=2),dims=2)
     out[2:end] .= diff(out)
     return out
 end
@@ -543,7 +531,7 @@ end
 function plot_states(data::RunData, ofile::AbstractString; title::AbstractString="")
     
     # 10^9 -> FIPS tract to state conversion
-    dat, lab = group_by(data, "total", TRACT2STATE, case_count!)
+    dat, lab = group_by(data, "total", EpicastTables.TRACT2STATE, case_count!)
 
     PyPlot.ioff()
     h, ax = subplots(1,1)
