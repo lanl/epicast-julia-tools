@@ -946,7 +946,7 @@ function dt_nt_get_populations(idir::AbstractString)
 
     files = find_files(idir, r".*\.feather$")
 
-    var_index = Dict{String,Int}("nighttime" => 1, "daytime" => 2)
+    var_index = Dict{String,Int}("delta_pop"=>1)#"nighttime" => 1, "daytime" => 2)
 
 
     out = [Dict{UInt64,Int}(), Dict{UInt64,Int}()]
@@ -955,7 +955,9 @@ function dt_nt_get_populations(idir::AbstractString)
 
         for (k,field) in enumerate([:orig_geoid, :dest_geoid])
             all_tracts = map(bgstr2tract, tbl[field])
-            tracts = unique(all_tracts)
+            tracts = filter!(unique(all_tracts)) do tract
+                return div(tract, EpicastTables.TRACT2STATE) == 35
+            end
 
             for tract in tracts
                 out[k][tract] = get(out, tract, 0) + count(isequal(tract), all_tracts)
@@ -966,12 +968,13 @@ function dt_nt_get_populations(idir::AbstractString)
     all_fips = sort!(union(collect(keys(out[1])), collect(keys(out[2]))))
 
     fips_index = Dict{UInt64,Int}(v => k for (k,v) in enumerate(all_fips))
-    data = zeros(Int, length(fips_index), 2)
 
-    for k in 1:length(out)
-        for (j,v) in out[k]
-            data[fips_index[j],k] = v
-        end
+    data = zeros(Float64, length(fips_index), 1)
+
+    for fips in all_fips
+        # daytime - nighttime
+        data[fips_index[fips],1] = (get(out[2], fips, 0) - get(out[1], fips, 0)) /
+            get(out[1], fips, 0)
     end
 
     return FIPSTable(data, fips_index, var_index)

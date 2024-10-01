@@ -42,20 +42,28 @@ all_vars(tbl::FIPSTable) = collect(keys(tbl.var_index))
 has_var(tbl::FIPSTable, var::AbstractString) = haskey(tbl.var_index, var)
 data_array(tbl::FIPSTable) = tbl.data
 # ---------------------------------------------------------------------------- #
-Base.getindex(tbl::FIPSTable{T,1}, fips::Integer) where T = tbl.data[tbl.fips_index[fips]]
-Base.getindex(tbl::FIPSTable{T,1}, fips::Integer, var::AbstractString) where T = tbl.data[tbl.fips_index[fips]]
-function Base.getindex(tbl::FIPSTable{T,1}, var::AbstractString) where T
+@inline function check_var(tbl::FIPSTable{T,1}) where T
     @assert(haskey(tbl.var_index, var), "variable $(var) not found")
-    return tbl.data
+    return true
 end
+Base.getindex(tbl::FIPSTable{T,1}, fips::Integer) where T = tbl.data[tbl.fips_index[fips]]
+Base.getindex(tbl::FIPSTable{T,1}, fips::Integer, var::AbstractString) where T = check_var(tbl, var) && return tbl.data[tbl.fips_index[fips]]
+Base.getindex(tbl::FIPSTable{T,1}, var::AbstractString) where T = check_var(tbl, var) && return tbl.data
+Base.getindex(tbl::FIPSTable{T,1}, k::Integer, fips::Integer, var::AbstractString) where T = check_var(tbl, var) && return tbl.data[tbl.fips_index[fips]]
 
 Base.getindex(tbl::FIPSTable{T,2}, fips::Integer) where T = view(tbl.data, tbl.fips_index[fips], :)
 Base.getindex(tbl::FIPSTable{T,2}, var::AbstractString) where T = view(tbl.data, :, tbl.var_index[var])
 Base.getindex(tbl::FIPSTable{T,2}, fips::Integer, var::AbstractString) where T = tbl.data[tbl.fips_index[fips], tbl.var_index[var]]
+function Base.getindex(tbl::FIPSTable{Float64,2}, k::Integer, fips::Integer, var::AbstractString)
+    return haskey(tbl.fips_index, fips) ?
+        tbl.data[tbl.fips_index[fips], tbl.var_index[var]] :
+        NaN
+end
 
 Base.getindex(tbl::FIPSTable{T,3}, fips::Integer) where T = view(tbl.data, :, tbl.fips_index[fips], :)
 Base.getindex(tbl::FIPSTable{T,3}, fips::Integer, var::AbstractString) where T = view(tbl.data, :, tbl.fips_index[fips], tbl.var_index[var])
 Base.getindex(tbl::FIPSTable{T,3}, var::AbstractString) where T = view(tbl.data, :, :, tbl.var_index[var])
+Base.getindex(tbl::FIPSTable{T,3}, k::Integer, fips::Integer, var::AbstractString) where T = tbl.data[k, tbl.fips_index[fips], tbl.var_index[var]]
 
 filter_columns(f::Function, tbl::FIPSTable) = sort!(filter(f, all_vars(tbl)))
 # ============================================================================ #
@@ -87,34 +95,43 @@ function county_conversion(tbl::FIPSTable)
     return TRACT2COUNTY
 end
 # ============================================================================ #
-function aggregate!(out::Array{T,3}, k::Integer, tbl::FIPSTable{3},
-    fips::AbstractVector{<:Integer}) where T <: Number
+function aggregate!(out::Array{T,3}, k::Integer, tbl::FIPSTable{L,3},
+    fips::AbstractVector{<:Integer}, do_avg::Bool) where {T<:Number,L<:Number}
 
     for x in fips
         out[:,k,:] .+= tbl[x]
     end
+    if do_avg
+        out[:,k,:] ./= length(fips)
+    end
     return out
 end
 # ---------------------------------------------------------------------------- #
-function aggregate!(out::Array{T,2}, k::Integer, tbl::FIPSTable{2},
-    fips::AbstractVector{<:Integer}) where T <: Number
+function aggregate!(out::Array{T,2}, k::Integer, tbl::FIPSTable{L,2},
+    fips::AbstractVector{<:Integer}, do_avg::Bool) where {T<:Number,L<:Number}
 
     for x in fips
         out[k,:] .+= tbl[x]
     end
-    return out
-end
-# ---------------------------------------------------------------------------- #
-function aggregate!(out::Array{T,1}, k::Integer, tbl::FIPSTable{1},
-    fips::AbstractVector{<:Integer}) where T <: Number
-
-    for x in fips
-        out[k] .+= tbl[x]
+    if do_avg
+        out[k,:] ./= length(fips)
     end
     return out
 end
 # ---------------------------------------------------------------------------- #
-function aggregate(tbl::FIPSTable{T,N}, conv::Integer) where {T,N}
+function aggregate!(out::Array{T,1}, k::Integer, tbl::FIPSTable{L,1},
+    fips::AbstractVector{<:Integer}, do_avg::Bool) where {T<:Number,L<:Number}
+
+    for x in fips
+        out[k] .+= tbl[x]
+    end
+    if do_avg
+        out[k] ./= length(fips)
+    end
+    return out
+end
+# ---------------------------------------------------------------------------- #
+function aggregate(tbl::FIPSTable{T,N}, conv::Integer, do_avg::Bool) where {T,N}
     conv == 1 && return tbl
     
     fips = all_fips(tbl)
@@ -125,30 +142,30 @@ function aggregate(tbl::FIPSTable{T,N}, conv::Integer) where {T,N}
     idx = N == 3 ? 2 : 1
     siz[idx] = length(unique_grps)
 
-    data = zeros(T, siz...)
+    data = zeros(Float64, siz...)
 
     for k in eachindex(unique_grps)
         idx = findall(isequal(unique_grps[k]), fips_conv)
-        aggregate!(data, k, tbl, fips[idx])
+        aggregate!(data, k, tbl, fips[idx], do_avg)
     end
 
     fips_idx = Dict{UInt64,Int}(x => k for (k,x) in enumerate(unique_grps))
 
-    return FIPSTable{N}(fips_idx, tbl.var_index, data)
+    return FIPSTable{Float64,N}(fips_idx, tbl.var_index, data)
 end
 # ============================================================================ #
-function aggregate_state(tbl::FIPSTable)
+function aggregate_state(tbl::FIPSTable, avg::Bool)
     tmp = keys(tbl.fips_index)
     isempty(tmp) && return tbl
 
-    return aggregate(tbl, state_conversion(tbl))
+    return aggregate(tbl, state_conversion(tbl), avg)
 end
 # ---------------------------------------------------------------------------- #
-function aggregate_county(tbl::FIPSTable)
+function aggregate_county(tbl::FIPSTable, avg::Bool)
     tmp = keys(tbl.fips_index)
     isempty(tmp) && return tbl
 
-    return aggregate(tbl, county_conversion(tbl))
+    return aggregate(tbl, county_conversion(tbl), avg)
 end
 # ============================================================================ #
 function all_states(tbl::FIPSTable)
