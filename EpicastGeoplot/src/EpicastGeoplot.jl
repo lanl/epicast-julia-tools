@@ -8,7 +8,7 @@ using Epicast, EpicastTables
 
 using PyCall
 
-export Polygon, Point, County, Tract
+export Polygon, Point, County, Tract, State
 
 include("./normalize.jl")
 
@@ -148,10 +148,12 @@ state_color(::Type{Point}) = "black"
 abstract type AbstractGeo end
 struct Tract <: AbstractGeo end
 struct County <: AbstractGeo end
+struct State <: AbstractGeo end
 
 # ============================================================================ #
 shape_file(::Type{County}) = joinpath(DATADIR, "cb_2019_us_county_5m.shp")
 shape_file(::Type{Tract}) = joinpath(DATADIR, "cb_2019_us_tract_500k.shp")
+shape_file(::Type{State}) = joinpath(DATADIR, "cb_2019_us_state_500k.shp")
 to_state(::Type{County}) = EpicastTables.COUNTY2STATE
 to_state(::Type{Tract}) = EpicastTables.TRACT2STATE
 to_geo(::Type{County}) = EpicastTables.TRACT2COUNTY
@@ -160,23 +162,28 @@ geo_name(::Type{County}) = "county"
 geo_name(::Type{Tract}) = "tract"
 default_shape(::Type{County}) = Polygon
 default_shape(::Type{Tract}) = Point
+default_outline(::Type{Tract}) = County
+default_outline(::Type{County}) = State
 # ============================================================================ #
 struct GeoplotData{T<:AbstractGeo,N}
     shps::Vector{Shapefile.Polygon}
     fips::Vector{UInt64} # FIPS codes for shapes in <shps>
     data::FIPSTable{Float64,N}
-    # states::Set{UInt64}
-    # state_data::FIPSTable{Float64,3}
 end
+
 data_matrix(g::GeoplotData, var::AbstractString) = g.data[var]
 data_matrix(g::GeoplotData) = data_matrix(g, first(keys(g.data.var_index)))
-# state_data_matrix(g::GeoplotData, var::AbstractString) = g.state_data[var]
 EpicastTables.all_states(g::GeoplotData) = Set(all_states(g.data))
 n_geo(g::GeoplotData) = size(data_matrix(g), 2)
 n_shape(g::GeoplotData) = length(g.shps)
 n_timepoint(g::GeoplotData) = size(data_matrix(g), 1)
 n_state(g::GeoplotData) = length(all_states(g)) #length(g.states)
 column_names(g::GeoplotData) = collect(keys(g.data.var_index))
+# ============================================================================ #
+outline_shapes(::Type{County}, d::GeoplotData{Tract}) = shape_file(County), Set(all_counties(d.data))
+outline_shapes(::Type{State}, d::GeoplotData{Tract}) = shape_file(State), Set(all_states(d.data))
+outline_shapes(::Type{County}, d::GeoplotData{County}) = shape_file(County), Set(all_counties(d.data))
+outline_shapes(::Type{State}, d::GeoplotData{County}) = shape_file(State), Set(all_states(d.data))
 # ============================================================================ #
 function geoplot_data(::Type{T}, data_file::AbstractString,
     prefix::AbstractString="") where T<:AbstractGeo
@@ -296,12 +303,13 @@ end
 function map_figure(data::GeoplotData{T}, var::AbstractString, frame::Integer;
     maxq::Real=quantile_threshold(T), cmap::AbstractString="viridis",
     norm::Type{<:AbstractNorm}=ExtremaNorm, title::AbstractString="",
-    cb_label::AbstractString="", shape::Type{<:AbstractShape}=default_shape(T)) where {T<:AbstractGeo}
+    cb_label::AbstractString="", shape::Type{<:AbstractShape}=default_shape(T),
+    outline::Type{<:AbstractGeo}=default_outline(T)) where T<:AbstractGeo
     
     h, ax = subplots(1,1)
     h.set_size_inches((10,6))
     norm, cm, hp = add_map!(ax, data, var, frame, maxq=maxq, cmap=cmap,
-        norm=norm, shape=shape)
+        norm=norm, shape=shape, outline=outline)
     
     ax.set_title(title, fontsize=18)
 
@@ -336,15 +344,13 @@ function map_figure(data::GeoplotData{T}, var::AbstractString, frame::Integer;
     return h, ax, cb
 end
 # ============================================================================ #
-outline_shapes(d::GeoplotData{Tract}) = shape_file(County), Set(all_counties(d.data))
-outline_shapes(d::GeoplotData{County}) = joinpath(DATADIR, "cb_2019_us_state_500k.shp"), Set(all_states(d.data))
-# ============================================================================ #
 function add_map!(ax::PyCall.PyObject, data::GeoplotData{T}, var::AbstractString,
     frame::Integer; mn::Real=NaN, mx::Real=NaN, maxq::Real=quantile_threshold(T),
     cmap::AbstractString="viridis", norm::Type{<:AbstractNorm}=ExtremaNorm,
-    shape::Type{<:AbstractShape}=default_shape(T)) where {T<:AbstractGeo}
+    shape::Type{<:AbstractShape}=default_shape(T),
+    outline::Type{<:AbstractGeo}=default_outline(T)) where T<:AbstractGeo
     
-    outline_shp, outline_fips = outline_shapes(data)
+    outline_shp, outline_fips = outline_shapes(outline, data)
 
     data_mat = data_matrix(data, var)
     mn = isnan(mn) ? minimum(data_mat) : mn
@@ -425,18 +431,22 @@ end
 # ============================================================================ #
 function make_figure(data::GeoplotData{T}; ofile::AbstractString="",
     maxq::Real=quantile_threshold(T), frame::Integer=1, vertical::Bool=false,
-    smooth::Bool=false) where T<:AbstractGeo
+    smooth::Bool=false, norm::Type{<:AbstractNorm}=ExtremaNorm,
+    shape::Type{<:AbstractShape}=default_shape(T),
+    outline::AbstractGeo=default_outline(T)) where T<:AbstractGeo
 
     var = first(keys(data.data.var_index))
 
     return make_figure(data, var, ofile=ofile, maxq=maxq, frame=frame,
-        vertical=vertical, smooth=smooth)
+        vertical=vertical, smooth=smooth, norm=norm, shape=shape, outline=outline)
 end
 # ---------------------------------------------------------------------------- #
 function make_figure(data::GeoplotData{T}, var::AbstractString;
     ofile::AbstractString="", maxq::Real=quantile_threshold(T),
     frame::Integer=1, vertical::Bool=false, smooth::Bool=false,
-    norm::Type{<:AbstractNorm}=ExtremaNorm, shape::Type{<:AbstractShape}=default_shape(T)) where T<:AbstractGeo
+    norm::Type{<:AbstractNorm}=ExtremaNorm,
+    shape::Type{<:AbstractShape}=default_shape(T),
+    outline::Type{<:AbstractGeo}=default_outline(T)) where T<:AbstractGeo
 
     nt = n_timepoint(data)
 
@@ -460,7 +470,7 @@ function make_figure(data::GeoplotData{T}, var::AbstractString;
     end
 
     norm, cm, hp = add_map!(ax[1], data, var, frame, maxq=maxq,
-        norm=norm, shape=shape)
+        norm=norm, shape=shape, outline=outline)
 
     mx2, time_idc = add_state_timeseries!(ax[2], data, var, frame, smooth,
         vertical)
