@@ -942,21 +942,23 @@ end
 # ============================================================================ #
 @inline bgstr2tract(x::AbstractString) = div(parse(Int, x), 10)
 # ============================================================================ #
-function dt_nt_get_populations(idir::AbstractString)
+function dt_nt_get_populations(idir::AbstractString, role::AbstractString="", state::Integer=35)
 
     files = find_files(idir, r".*\.feather$")
 
-    var_index = Dict{String,Int}("delta_pop"=>1)#"nighttime" => 1, "daytime" => 2)
+    var_index = Dict{String,Int}("delta_pop"=>1)
 
-
+    # [nighttime (dest), daytime (orig)]
     out = [Dict{UInt64,Int}(), Dict{UInt64,Int}()]
     for file in files
         tbl = Arrow.Table(file)
+        idx = isempty(role) ? collect(1:length(tbl[:role])) : findall(isequal(role), tbl[:role])
 
+        # [nighttime (dest), daytime (orig)]
         for (k,field) in enumerate([:orig_geoid, :dest_geoid])
-            all_tracts = map(bgstr2tract, tbl[field])
+            all_tracts = map(bgstr2tract, tbl[field][idx])
             tracts = filter!(unique(all_tracts)) do tract
-                return div(tract, EpicastTables.TRACT2STATE) == 35
+                return div(tract, EpicastTables.TRACT2STATE) == state
             end
 
             for tract in tracts
@@ -973,8 +975,8 @@ function dt_nt_get_populations(idir::AbstractString)
 
     for fips in all_fips
         # daytime - nighttime
-        data[fips_index[fips],1] = (get(out[2], fips, 0) - get(out[1], fips, 0)) /
-            get(out[1], fips, 0)
+        data[fips_index[fips],1] = (get(out[2], fips, 0) - get(out[1], fips, 0))# /
+            #get(out[1], fips, 0)
     end
 
     return FIPSTable(data, fips_index, var_index)

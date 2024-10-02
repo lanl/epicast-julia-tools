@@ -1,6 +1,7 @@
 module Workerflow
 
 using DelimitedFiles, CSV
+using EpicastTables
 # ---------------------------------------------------------------------------- #
 function convert_workerflow(ifile::AbstractString, ofile::AbstractString)
 
@@ -399,6 +400,33 @@ get_column(d::Dict{Tuple{Int,Int}, Int}, idx::Integer) = get_slice(Slice{2,1}, d
 get_row(d::Dict{Tuple{Int,Int}, Int}, idx::Integer) = get_slice(Slice{1,2}, d, idx)
 # ---------------------------------------------------------------------------- #
 vec_sum(d::Dict{Int,Int}, rm::Integer) = sum(values(d)) - d[rm]
+# ---------------------------------------------------------------------------- #
+function all_tracts(d::Dict{Tuple{Int,Int},Int})
+    tracts = Set{Int}()
+    for (k,v) in d
+        push!(tracts, k[1])
+        push!(tracts, k[2])
+    end
+    return tracts
+end
+# ---------------------------------------------------------------------------- #
+function net_flow(d::Dict{Tuple{Int,Int},Int}, tracts::Set{<:Integer})
+
+    flow = zeros(Float64, length(tracts),1)
+    fips_index = Dict{UInt64,Int}()
+    k = 1
+    for tr in tracts
+        inflow = sum(values(get_column(d, tr)))
+        outflow = sum(values(get_row(d, tr)))
+        flow[k,1] = inflow - outflow
+        fips_index[tr] = k
+        k += 1
+    end
+
+    var_index = Dict{String,Int}("delta_pop" => 1)
+
+    return FIPSTable{Float64,2}(fips_index, var_index, flow)
+end
 # ---------------------------------------------------------------------------- #
 # list of neighboring and very nearby* states for each state
 # *NOTE: nearby means commuting is reasonable b/t these states
