@@ -8,7 +8,7 @@ using Epicast, EpicastTables
 
 using PyCall
 
-export Polygon, Point, County, Tract, State
+export Polygon, Point, County, Tract, State, BlockGroup
 
 include("./normalize.jl")
 
@@ -87,7 +87,7 @@ function data_dict(data::Epicast.RunData, names::Vector{<:AbstractString},
 
     idx = Dict{UInt64,Int}(grp[k] => k for k in eachindex(grp))
     var = Dict{String,Int}(names[k] => k for k in eachindex(names))
-    return FIPSTable(dat, idx, var)
+    return FIPSTable(Tract, dat, idx, var)
 end
 # ============================================================================ #
 function area(pts::AbstractVector{Shapefile.Point})
@@ -144,31 +144,31 @@ struct Point <: AbstractShape end
 
 state_color(::Type{Polygon}) = "white"
 state_color(::Type{Point}) = "black"
-
-abstract type AbstractGeo end
-struct Tract <: AbstractGeo end
-struct County <: AbstractGeo end
-struct State <: AbstractGeo end
-
 # ============================================================================ #
-shape_file(::Type{County}) = joinpath(DATADIR, "cb_2019_us_county_5m.shp")
+shape_file(::Type{BlockGroup}) = joinpath(DATADIR, "cb_2019_us_bg_500k.shp")
 shape_file(::Type{Tract}) = joinpath(DATADIR, "cb_2019_us_tract_500k.shp")
+shape_file(::Type{County}) = joinpath(DATADIR, "cb_2019_us_county_5m.shp")
 shape_file(::Type{State}) = joinpath(DATADIR, "cb_2019_us_state_500k.shp")
-to_state(::Type{County}) = EpicastTables.COUNTY2STATE
+to_state(::Type{BlockGroup}) = EpicastTables.BG2STATE
 to_state(::Type{Tract}) = EpicastTables.TRACT2STATE
+to_state(::Type{County}) = EpicastTables.COUNTY2STATE
 to_geo(::Type{County}) = EpicastTables.TRACT2COUNTY
 to_geo(::Type{Tract}) = 1
+to_geo(::Type{BlockGroup}) = 1
 geo_name(::Type{County}) = "county"
 geo_name(::Type{Tract}) = "tract"
+geo_name(::Type{BlockGroup}) = "block-group"
 default_shape(::Type{County}) = Polygon
 default_shape(::Type{Tract}) = Point
+default_shape(::Type{BlockGroup}) = Point
+default_outline(::Type{BlockGroup}) = Tract
 default_outline(::Type{Tract}) = County
 default_outline(::Type{County}) = State
 # ============================================================================ #
 struct GeoplotData{T<:AbstractGeo,N}
     shps::Vector{Shapefile.Polygon}
     fips::Vector{UInt64} # FIPS codes for shapes in <shps>
-    data::FIPSTable{Float64,N}
+    data::FIPSTable{T,Float64,N}
 end
 
 data_matrix(g::GeoplotData, var::AbstractString) = g.data[var]
@@ -180,6 +180,9 @@ n_timepoint(g::GeoplotData) = size(data_matrix(g), 1)
 n_state(g::GeoplotData) = length(all_states(g)) #length(g.states)
 column_names(g::GeoplotData) = collect(keys(g.data.var_index))
 # ============================================================================ #
+outline_shapes(::Type{Tract}, d::GeoplotData{BlockGroup}) = shape_file(Tract), Set(all_tracts(d.data))
+outline_shapes(::Type{County}, d::GeoplotData{BlockGroup}) = shape_file(County), Set(all_counties(d.data))
+outline_shapes(::Type{State}, d::GeoplotData{BlockGroup}) = shape_file(State), Set(all_states(d.data))
 outline_shapes(::Type{County}, d::GeoplotData{Tract}) = shape_file(County), Set(all_counties(d.data))
 outline_shapes(::Type{State}, d::GeoplotData{Tract}) = shape_file(State), Set(all_states(d.data))
 outline_shapes(::Type{County}, d::GeoplotData{County}) = shape_file(County), Set(all_counties(d.data))
@@ -243,20 +246,21 @@ function geoplot_data(::Type{T}, all_data::Epicast.RunData,
 end
 # ---------------------------------------------------------------------------- #
 aggregate_to(::Type{County}, data::FIPSTable) = aggregate_county(data, true)
-aggregate_to(::Type{Tract}, data::FIPSTable) = data
+aggregate_to(::Type{Tract}, data::FIPSTable) = aggregate_tract(data, true)
+aggregate_to(::Type{BlockGroup}, data::FIPSTable) = data
 # ---------------------------------------------------------------------------- #
-function geoplot_data(::Type{T}, data::FIPSTable{Float64,N}) where {T<:AbstractGeo,N}
+function geoplot_data(data::FIPSTable{G,Float64,N}) where {G<:AbstractGeo,N}
     states = Set(all_states(data))
-    shps, fips = load_polygons(shape_file(T), states, to_state(T))
-    tmp = aggregate_to(T, data)
+    shps, fips = load_polygons(shape_file(G), states, to_state(G))
+    tmp = aggregate_to(G, data)
     filter_shapes!(shps, fips, tmp)
-    return GeoplotData{T,N}(shps, fips, tmp)
+    return GeoplotData{G,N}(shps, fips, tmp)
 end
 # ---------------------------------------------------------------------------- #
-function geoplot_data(::Type{T}, data::FIPSTable{L,N}) where {T<:AbstractGeo,L<:Integer,N}
+function geoplot_data(data::FIPSTable{G,L,N}) where {G<:AbstractGeo,L<:Integer,N}
     tmp = FIPSTable{Float64,N}(data.fips_index, data.var_index,
         Array{Float64,N}(data.data))
-    return geoplot_data(T, tmp)
+    return geoplot_data(G, tmp)
 end
 # ============================================================================ #
 function draw_shapes!(::Type{Polygon}, ax, data::GeoplotData, var::AbstractString,
@@ -284,7 +288,7 @@ function draw_shapes!(::Type{Point}, ax, data::GeoplotData, var::AbstractString,
 end
 # ============================================================================ #
 quantile_threshold(::Type{County}) = 0.999
-quantile_threshold(::Type{Tract}) = 0.99
+quantile_threshold(::Type{<:AbstractGeo}) = 0.99
 # ============================================================================ #
 function nearest_shape(data::GeoplotData, idx::AbstractArray{<:Integer}, mouseevt)
     n = length(idx)
@@ -551,7 +555,6 @@ function load_polygons(ifile::AbstractString, geo::Set{<:Integer}, level::Intege
     return convert(Vector{Shapefile.Polygon}, out), fips[idx]
 end
 # ============================================================================ #
-# /Users/palexander/Documents/emerge+radium/geo-data/cb_2019_us_state_500k/cb_2019_us_state_500k.shp
 function state_outlines!(ax, shpfile::AbstractString, states::Set{<:Integer}, color::AbstractString="white")
     shps, _ = load_polygons(shpfile, states, 1)
     for shp in shps

@@ -151,8 +151,8 @@ end
 abstract type AbstractRunData end
 # ============================================================================ #
 struct RunData{T} <: AbstractRunData
-    demog::FIPSTable{T,2}
-    data::FIPSTable{T,3}
+    demog::FIPSTable{Tract,T,2}
+    data::FIPSTable{Tract,T,3}
     fips::Vector{UInt64}
     runno::String
 end
@@ -250,7 +250,7 @@ function read_runfile_header(io::IO, ::Type{T}=UInt32) where T <: Integer
     read!(io, demo)
 
     return nrow, ncol, n_pt, col_names, fips,
-        FIPSTable(demo, run_index(fips), run_index(demo_names))
+        FIPSTable{Tract,T,2}(demo, run_index(fips), run_index(demo_names))
 end
 # ============================================================================ #
 function read_runfile(ifile::AbstractString, ::Type{T}=UInt32) where T <: Integer   
@@ -275,7 +275,7 @@ function read_runfile(ifile::AbstractString, ::Type{T}=UInt32) where T <: Intege
 
         return RunData{T}(
             demo,
-            FIPSTable(permutedims(data, (3,1,2)), run_index(fips),
+            FIPSTable{Tract,T,3}(permutedims(data, (3,1,2)), run_index(fips),
                 run_index(map(string, col_names))),
             fips,
             m[1]
@@ -318,8 +318,8 @@ function read_agent_transitions(io::IO)
     return data
 end
 # ============================================================================ #
-function RunData(demog::FIPSTable{T,2}, data::Vector{AgentTransition},
-    fips::Vector{UInt64}, n_pt::Integer, run::AbstractString) where T
+function RunData(demog::FIPSTable{G,T,2}, data::Vector{AgentTransition},
+    fips::Vector{UInt64}, n_pt::Integer, run::AbstractString) where {G,T}
 
     mp = Dict{UInt64,Int}(id => k for (k,id) in enumerate(fips))
 
@@ -336,14 +336,14 @@ function RunData(demog::FIPSTable{T,2}, data::Vector{AgentTransition},
 
     return RunData{T}(
         demog,
-        FIPSTable(tmp, run_index(fips), run_index(["total"])),
+        FIPSTable{G,T,3}(tmp, run_index(fips), run_index(["total"])),
         fips,
         run
     )
 end
 # ============================================================================ #
 struct EventData <: AbstractRunData
-    demog::FIPSTable{UInt32,2}
+    demog::FIPSTable{Tract,UInt32,2}
     events::Vector{AgentTransition}
     fips::Vector{UInt64}
     n_pt::UInt64

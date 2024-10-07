@@ -425,7 +425,7 @@ function net_flow(d::Dict{Tuple{Int,Int},Int}, tracts::Set{<:Integer})
 
     var_index = Dict{String,Int}("delta_pop" => 1)
 
-    return FIPSTable{Float64,2}(fips_index, var_index, flow)
+    return FIPSTable{Tract,Float64,2}(fips_index, var_index, flow)
 end
 # ---------------------------------------------------------------------------- #
 # list of neighboring and very nearby* states for each state

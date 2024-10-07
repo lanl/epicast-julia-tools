@@ -940,13 +940,22 @@ function fetch_agent_demographics(agent_ids::AbstractVector{T},
     return out[invperm(ks)]
 end
 # ============================================================================ #
-@inline bgstr2tract(x::AbstractString) = div(parse(Int, x), 10)
+@inline bgstr2geoid(x::AbstractString, conv::Integer) = div(parse(Int, x), conv)
 # ============================================================================ #
-function dt_nt_get_populations(idir::AbstractString, role::AbstractString="", state::Integer=35)
+function dt_nt_get_populations(idir::AbstractString; role::AbstractString="",
+    state::Integer=35)
+    return dt_nt_get_populations(BlockGroup, idir, role=role, state=state)
+end
+# ---------------------------------------------------------------------------- #
+function dt_nt_get_populations(::Type{G}, idir::AbstractString; role::AbstractString="",
+    state::Integer=35) where {G<:AbstractGeo}
 
     files = find_files(idir, r".*\.feather$")
 
     var_index = Dict{String,Int}("delta_pop"=>1)
+
+    g_conv = EpicastTables.geo_conversion(BlockGroup, G)
+    state_conv = EpicastTables.geo_conversion(G, State)
 
     # [nighttime (dest), daytime (orig)]
     out = [Dict{UInt64,Int}(), Dict{UInt64,Int}()]
@@ -956,16 +965,18 @@ function dt_nt_get_populations(idir::AbstractString, role::AbstractString="", st
 
         # [nighttime (dest), daytime (orig)]
         for (k,field) in enumerate([:orig_geoid, :dest_geoid])
-            all_tracts = map(bgstr2tract, tbl[field][idx])
-            tracts = filter!(unique(all_tracts)) do tract
-                return div(tract, EpicastTables.TRACT2STATE) == state
+            all_geo = map(x -> bgstr2geoid(x, g_conv), tbl[field][idx])
+            geo = filter!(unique(all_geo)) do g
+                return div(g, state_conv) == state
             end
 
-            for tract in tracts
-                out[k][tract] = get(out, tract, 0) + count(isequal(tract), all_tracts)
+            for g in geo
+                out[k][g] = get(out, g, 0) + count(isequal(g), all_geo)
             end
         end
     end
+
+    # @show(out[1][350010018002], out[2][350010018002])
 
     all_fips = sort!(union(collect(keys(out[1])), collect(keys(out[2]))))
 
@@ -979,7 +990,7 @@ function dt_nt_get_populations(idir::AbstractString, role::AbstractString="", st
             #get(out[1], fips, 0)
     end
 
-    return FIPSTable(data, fips_index, var_index)
+    return FIPSTable{G,Float64,2}(fips_index, var_index, data)
 end
 # ============================================================================ #
 end # module UrbanPop
