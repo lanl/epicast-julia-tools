@@ -631,7 +631,7 @@ function plot_run(data::RunData, name::AbstractString; freduce=total_cases,
 end
 # ============================================================================ #
 function plot_runs(data, name::AbstractString; freduce=total_cases,
-    normalize::Bool=false, dropname::Bool=false, ylab::String="",
+    normalize::Bool=false, demo::AbstractString="", dropname::Bool=false, ylab::String="",
     title::String="", h=nothing, ax=nothing, style::Function=(h, ax) -> nothing,
     dataset_names::AbstractVector{<:AbstractString}=nothing)
 
@@ -655,10 +655,14 @@ function plot_runs(data, name::AbstractString; freduce=total_cases,
         name = dataset_names[j]
         for (c, col) in enumerate(dataset_cols)
             dat = Float64.(rundata(dataset, col))
-            if normalize && has_demographic(dataset, col)
-                tmp2 = sum(demographics(dataset, col))
+            d = demo
+            if 0 == cmp(demo, "")
+                d = col
+            end
+            if normalize && has_demographic(dataset, d)
+                tmp2 = sum(demographics(dataset, d))
                 dat ./= tmp2
-                dat .*= 1e5
+                #dat .*= 1e5
 
                 replace!(x -> isnan(x) || isinf(x) ? 0.0 : x, dat)
             end
