@@ -78,15 +78,6 @@ Base.getindex(tbl::FIPSTable{G,T,3}, fips::Integer, var::AbstractString) where {
 Base.getindex(tbl::FIPSTable{G,T,3}, var::AbstractString) where {T,G} = view(tbl.data, :, :, tbl.var_index[var])
 Base.getindex(tbl::FIPSTable{G,T,3}, k::Integer, fips::Integer, var::AbstractString) where {T,G} = tbl.data[k, tbl.fips_index[fips], tbl.var_index[var]]
 # ============================================================================ #
-# is_state(fips::Integer) = 0 < fips < 57
-# is_county(fips::Integer) = 3 < ceil(Int, log10(fips)) < 6
-
-# # NOTE: there is overlap b/t block groups and tract in terms of the number of
-# # digits, so care should be taken with is_tract()
-# is_tract(fips::Integer) = 9 < ceil(Int, log10(fips)) < 12 # 10 or 11 digits
-
-# is_blockgroup(fips::Integer) = 10 < ceil(Int, log10(fips)) < 13 # 11 or 12 digits
-# ============================================================================ #
 geo_conversion(::Type{T}, ::Type{T}) where T = 1
 geo_conversion(::Type{County}, ::Type{State}) = COUNTY2STATE
 geo_conversion(::Type{Tract}, ::Type{State}) = TRACT2STATE

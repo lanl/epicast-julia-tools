@@ -1,6 +1,6 @@
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.10.3"
+julia_version = "1.10.4"
 manifest_format = "2.0"
 project_hash = "242869f626b4fee614b34ad434e93800b4935245"
 
@@ -118,6 +118,11 @@ version = "1.6.0"
 git-tree-sha1 = "bdb1942cd4c45e3c678fd11569d5cccd80976237"
 uuid = "4e289a0a-7415-4d19-859d-a7e5c4648b56"
 version = "1.0.4"
+
+[[deps.EpicastTables]]
+path = "../EpicastTables"
+uuid = "7f8b32be-ad0a-4d41-97a2-963287e4efb7"
+version = "0.1.0"
 
 [[deps.EpicastTypes]]
 path = "../EpicastTypes"
@@ -442,7 +447,7 @@ uuid = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
 uuid = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
 
 [[deps.UrbanPop]]
-deps = ["Arrow", "Mmap", "Printf", "Query", "SHA", "Tables"]
+deps = ["Arrow", "EpicastTables", "Mmap", "Printf", "Query", "SHA", "Tables"]
 path = "../UrbanPop"
 uuid = "f3f28a4b-fe4e-413d-beed-473d3cb4e60c"
 version = "0.1.0"
@@ -459,7 +464,7 @@ uuid = "76eceee3-57b5-4d4a-8e66-0e911cebbf60"
 version = "1.6.1"
 
 [[deps.Workerflow]]
-deps = ["CSV", "DelimitedFiles", "Downloads"]
+deps = ["CSV", "DelimitedFiles", "Downloads", "EpicastTables"]
 path = "../Workerflow"
 uuid = "35cc5ddd-7890-4ab3-b49b-d7028e71734a"
 version = "0.1.0"

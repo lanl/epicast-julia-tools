@@ -391,6 +391,63 @@ function validate_daygroups(cp_file::AbstractString, tr_file::AbstractString)
 
 end
 # ============================================================================ #
+is_student(x) = x.naics_code != 611 && x.school != 0
+is_teacher(pt) = pt.naics_code == 611
+function school_stats(cp_file::AbstractString, tr_file::AbstractString)
+
+    data = read_checkpoint_file(cp_file)
+    tr = UrbanPop.read_tract_file(tr_file)
+    res = Dict{Int,Dict{Int,Vector{Int}}}()
+
+    for j in eachindex(data)
+        fips = div(tr[data[j].cell_data.tract+1].fips_code,10^6)
+        if !haskey(res, fips)
+            res[fips] = Dict{Int,Vector{Int}}()
+        end
+        for k in eachindex(data[j].particles)
+            if is_student(data[j].particles[k])
+                id = data[j].particles[k].school
+                field = min(abs(id),6)
+                tmp = get(res[fips], field, zeros(Int,2))
+                if id > 0
+                    tmp[1] += 1
+                else
+                    tmp[2] += 1
+                end
+                res[fips][field] = tmp
+            end
+        end
+    end
+
+    out =  Dict{Int,Dict{Int,Float64}}()
+    for (cnty, d) in res
+        out[cnty] = Dict( id => v[1] / (v[1]+v[2]) for (id,v) in d)
+    end
+
+    return out
+end
+# ============================================================================ #
+is_working(x) = x.employment > 0 && (x.work == floor.(Int, x.r))
+function work_stats(cp_file::AbstractString)
+    data = read_checkpoint_file(cp_file)
+    out = Dict{Int,NamedTuple{(:w,:n),Tuple{Int,Int}}}()
+
+    for j in eachindex(data)
+        for k in eachindex(data[j].particles)
+            nc = div(data[j].particles[k].naics_code, 10)
+            if nc > 0 && is_working(data[j].particles[k])
+                tmp = get(out, nc, (w=0,n=0))
+                out[nc] = (w=tmp.w + 1, n=tmp.n)
+            elseif nc > 0
+                tmp = get(out, nc, (w=0,n=0))
+                out[nc] = (w=tmp.w, n=tmp.n+1)
+            end
+        end
+    end
+
+    return Dict(k => v.w / (v.w + v.n) for (k,v) in out)
+end
+# ============================================================================ #
 end
 #=
 TODO:

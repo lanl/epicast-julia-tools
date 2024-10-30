@@ -191,7 +191,7 @@ function group_by(x::RunData, name::AbstractString, conv::Integer,
     if has_data(x, name)
         cols = [name]
     else
-        cols = filter_columns(x -> startswith(x, name), x.data)
+        cols = filter_vars(x -> startswith(x, name), x.data)
     end
 
     dat, grp = group_by(x, cols, conv, fcases!)
@@ -250,7 +250,7 @@ function read_runfile_header(io::IO, ::Type{T}=UInt32) where T <: Integer
     read!(io, demo)
 
     return nrow, ncol, n_pt, col_names, fips,
-        FIPSTable{Tract,T,2}(demo, run_index(fips), run_index(demo_names))
+        FIPSTable{Tract,T,2}(run_index(fips), run_index(demo_names), demo)
 end
 # ============================================================================ #
 function read_runfile(ifile::AbstractString, ::Type{T}=UInt32) where T <: Integer   
@@ -275,8 +275,11 @@ function read_runfile(ifile::AbstractString, ::Type{T}=UInt32) where T <: Intege
 
         return RunData{T}(
             demo,
-            FIPSTable{Tract,T,3}(permutedims(data, (3,1,2)), run_index(fips),
-                run_index(map(string, col_names))),
+            FIPSTable{Tract,T,3}(
+                run_index(fips),
+                run_index(map(string, col_names)),
+                permutedims(data, (3,1,2))
+            ),
             fips,
             m[1]
         )
@@ -336,7 +339,7 @@ function RunData(demog::FIPSTable{G,T,2}, data::Vector{AgentTransition},
 
     return RunData{T}(
         demog,
-        FIPSTable{G,T,3}(tmp, run_index(fips), run_index(["total"])),
+        FIPSTable{G,T,3}(run_index(fips), run_index(["total"]), tmp),
         fips,
         run
     )
@@ -572,7 +575,7 @@ function plot_run(data::RunData, name::AbstractString; freduce=total_cases,
     normalize::Bool=false, dropname::Bool=false, ylab::String="",
     title::String="", h=nothing, ax=nothing)
 
-    cols = filter_columns(x -> startswith(x, name), data.data)
+    cols = filter_vars(x -> startswith(x, name), data.data)
     if h == nothing || ax == nothing
         h, ax = subplots(1, 1)
         h.set_size_inches((8,6))
@@ -591,7 +594,7 @@ function plot_run(data::RunData, name::AbstractString; freduce=total_cases,
         dat = Float64.(rundata(data, col))
         if normalize && has_demographic(data, col)
             tmp2 = demographics(data, col)
-            dat ./= tmp2
+            dat ./= reshape(tmp2, 1, length(tmp2))
             replace!(x -> isnan(x) || isinf(x) ? 0.0 : x, dat)
         end
         tmp = freduce(dat)
@@ -608,6 +611,17 @@ function plot_run(data::RunData, name::AbstractString; freduce=total_cases,
     ax.legend(fontsize=14, frameon=false)
 
     h.tight_layout()
+
+    return h, ax
+end
+# ============================================================================ #
+function plot_run(data::Vector{RunData{T}}, name::AbstractString; args...) where T<:Number
+
+    h, ax = (nothing,nothing)
+
+    for d in data
+        h, ax = plot_run(d, name; h=h, ax=ax, args...)
+    end
 
     return h, ax
 end
