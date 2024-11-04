@@ -630,7 +630,7 @@ function plot_run(data::RunData, name::AbstractString; freduce=total_cases,
     return h, ax
 end
 # ============================================================================ #
-function plot_runs(data, name::AbstractString; freduce=total_cases,
+function plot_runs(data, name::AbstractString; freduce=total_cases, reduce_cols=nothing,
     normalize::Bool=false, demo::AbstractString="", dropname::Bool=false, ylab::String="",
     title::String="", h=nothing, ax=nothing, style::Function=(h, ax) -> nothing,
     dataset_names::AbstractVector{<:AbstractString}=nothing)
@@ -645,37 +645,50 @@ function plot_runs(data, name::AbstractString; freduce=total_cases,
 
     rm = dropname ? name * "_" => "" : "_" => " "
 
+    n_colors = sum(map(length, cols))
+    if reduce_cols != nothing
+        n_colors = sum(map(x -> 1, cols))
+    end
     colors = map(col -> (red(col), green(col), blue(col)),
-                 distinguishable_colors(sum(map(length, cols)), [RGB(1,1,1), RGB(0,0,0)],
-                    dropseed=true))
+                 distinguishable_colors(n_colors, [RGB(1,1,1), RGB(0,0,0)], dropseed=true))
+
+    plot_col(k, dataset, dat, name, col) = begin
+        d = demo
+        if 0 == cmp(demo, "")
+            d = col
+        end
+        if normalize && has_demographic(dataset, d)
+            tmp2 = sum(demographics(dataset, d))
+            dat ./= tmp2
+            #dat .*= 1e5
+
+            replace!(x -> isnan(x) || isinf(x) ? 0.0 : x, dat)
+        end
+        tmp = freduce(dat)
+        label = replace(col, rm)
+        if dataset_names != nothing
+            if length(colors) != length(data)
+                label = "$(name)_$label"
+            else
+                label = name
+            end
+        end
+        ax.plot(t, tmp, label=label, color=colors[k])
+    end
 
     k = 1
     for (j, dataset_cols) in enumerate(cols)
         dataset = data[j]
-        name = dataset_names[j]
-        for (c, col) in enumerate(dataset_cols)
-            dat = Float64.(rundata(dataset, col))
-            d = demo
-            if 0 == cmp(demo, "")
-                d = col
+        n = dataset_names[j]
+        if reduce_cols == nothing
+            for (c, col) in enumerate(dataset_cols)
+                d = Float64.(rundata(dataset, col))
+                plot_col(k, dataset, d, n, col)
+                k += 1
             end
-            if normalize && has_demographic(dataset, d)
-                tmp2 = sum(demographics(dataset, d))
-                dat ./= tmp2
-                #dat .*= 1e5
-
-                replace!(x -> isnan(x) || isinf(x) ? 0.0 : x, dat)
-            end
-            tmp = freduce(dat)
-            label = replace(col, rm)
-            if dataset_names != nothing
-                if length(colors) != length(data)
-                    label = "$(name)_$label"
-                else
-                    label = name
-                end
-            end
-            ax.plot(t, tmp, label=label, color=colors[k])
+        else
+            d = reduce_col(map(col -> Float64.(rundata(dataset, col)), dataset_cols))
+            plot_col(k, dataset, d, n, name)
             k += 1
         end
     end
