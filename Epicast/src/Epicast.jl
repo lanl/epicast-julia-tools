@@ -708,6 +708,26 @@ function plot_runs(data, name::AbstractString; freduce=total_cases, reduce_cols=
     return h, ax
 end
 # ============================================================================ #
+function aggregate(data::RunData, col::AbstractString;
+    freduce=total_cases, demo::AbstractString=nothing)
+
+    dat = nothing
+    if freduce == nothing
+        dat = Float64.(rundata(data, col))
+    else
+        dat = freduce(Float64.(rundata(data, col)))
+    end
+
+    if demo != nothing has_demographic(data, demo)
+        tmp2 = sum(demographics(data, demo))
+        dat ./= tmp2
+        #dat .*= 1e5
+
+        replace!(x -> isnan(x) || isinf(x) ? 0.0 : x, dat)
+    end
+    return freduce(dat)
+end
+# ============================================================================ #
 find_files(dir::AbstractString, re=r".*") = return do_match(dir, re, isfile)
 # ---------------------------------------------------------------------------- #
 find_directories(dir::AbstractString, re=r".*") = return do_match(dir, re, isdir)
