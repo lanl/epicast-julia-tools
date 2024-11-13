@@ -709,17 +709,11 @@ function plot_runs(data, name::AbstractString; freduce=total_cases, reduce_cols=
 end
 # ============================================================================ #
 function aggregate(data::RunData, col::AbstractString;
-    freduce=total_cases, demo::AbstractString=nothing)
+    freduce=total_cases, demo::AbstractString="")
 
-    dat = nothing
-    if freduce == nothing
-        dat = Float64.(rundata(data, col))
-    else
-        dat = freduce(Float64.(rundata(data, col)))
-    end
-
-    if demo != nothing has_demographic(data, demo)
-        tmp2 = sum(demographics(data, demo))
+    dat = Float64.(rundata(data, col))
+    if demo != "" && has_demographic(data, demo)
+        tmp2 = demographics(data, demo)
         dat ./= tmp2
         #dat .*= 1e5
 
