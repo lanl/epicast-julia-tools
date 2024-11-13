@@ -714,12 +714,14 @@ function aggregate(data::RunData, col::AbstractString;
     dat = Float64.(rundata(data, col))
     if demo != "" && has_demographic(data, demo)
         tmp2 = demographics(data, demo)
-        dat ./= tmp2
         #dat .*= 1e5
 
         replace!(x -> isnan(x) || isinf(x) ? 0.0 : x, dat)
+        replace!(x -> isnan(x) || isinf(x) ? 0.0 : x, tmp2)
+        return freduce(dat) / sum(tmp2)
+    else
+        return freduce(dat)
     end
-    return freduce(dat)
 end
 # ============================================================================ #
 find_files(dir::AbstractString, re=r".*") = return do_match(dir, re, isfile)
