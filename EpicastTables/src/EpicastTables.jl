@@ -91,8 +91,8 @@ geo_conversion(::Type{State}, ::Type{Tract}) = error("Cannot convert states to t
 geo_conversion(::Type{County}, ::Type{Tract}) = error("Cannot convert counties to tracts")
 geo_conversion(::Type{BlockGroup}, ::Type{Tract}) = BG2TRACT
 # ============================================================================ #
-function aggregate!(out::Array{T,3}, k::Integer, tbl::FIPSTable{L,3},
-    fips::AbstractVector{<:Integer}, do_avg::Bool) where {T<:Number,L<:Number}
+function aggregate!(out::Array{T,3}, k::Integer, tbl::FIPSTable{G,L,3},
+    fips::AbstractVector{<:Integer}, do_avg::Bool) where {T<:Number, G<:AbstractGeo,L<:Number}
 
     for x in fips
         out[:,k,:] .+= tbl[x]
@@ -103,8 +103,8 @@ function aggregate!(out::Array{T,3}, k::Integer, tbl::FIPSTable{L,3},
     return out
 end
 # ---------------------------------------------------------------------------- #
-function aggregate!(out::Array{T,2}, k::Integer, tbl::FIPSTable{L,2},
-    fips::AbstractVector{<:Integer}, do_avg::Bool) where {T<:Number,L<:Number}
+function aggregate!(out::Array{T,2}, k::Integer, tbl::FIPSTable{G,L,2},
+    fips::AbstractVector{<:Integer}, do_avg::Bool) where {T<:Number, G<:AbstractGeo,L<:Number}
 
     for x in fips
         out[k,:] .+= tbl[x]
@@ -115,8 +115,8 @@ function aggregate!(out::Array{T,2}, k::Integer, tbl::FIPSTable{L,2},
     return out
 end
 # ---------------------------------------------------------------------------- #
-function aggregate!(out::Array{T,1}, k::Integer, tbl::FIPSTable{L,1},
-    fips::AbstractVector{<:Integer}, do_avg::Bool) where {T<:Number,L<:Number}
+function aggregate!(out::Array{T,1}, k::Integer, tbl::FIPSTable{G,L,1},
+    fips::AbstractVector{<:Integer}, do_avg::Bool) where {T<:Number, G<:AbstractGeo,L<:Number}
 
     for x in fips
         out[k] .+= tbl[x]

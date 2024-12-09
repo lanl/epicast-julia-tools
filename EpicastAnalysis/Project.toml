@@ -1,0 +1,9 @@
+name = "EpicastAnalysis"
+uuid = "2c2a4e40-a029-485e-8c81-45776cf50a63"
+authors = ["Scottie Alexander <palexander@lanl.gov>"]
+version = "0.1.0"
+
+[deps]
+CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
+Epicast = "cbb96616-a3d1-4d5e-a40b-9319cdaf6efd"
+UrbanPop = "f3f28a4b-fe4e-413d-beed-473d3cb4e60c"

@@ -1,6 +1,6 @@
 module EpicastGeoplot
 
-using Shapefile, PyPlot, Colors, Printf, Statistics
+using Shapefile, PyPlot, Colors, Printf, Statistics, Dates
 
 import EpicastTables
 
@@ -61,8 +61,9 @@ function case_count!(out::AbstractVector, x::Epicast.RunData,
     return out
 end
 # ============================================================================ #
-function data_dict(data::Epicast.RunData, names::Vector{<:AbstractString},
-    conv::Integer=EpicastTables.TRACT2COUNTY)
+function data_dict(::Type{T}, data::Epicast.RunData, names::Vector{<:AbstractString}) where T<:AbstractGeo
+
+    conv = to_geo(T)
 
     if conv > 1
         # dat is: time x fips x var
@@ -87,7 +88,7 @@ function data_dict(data::Epicast.RunData, names::Vector{<:AbstractString},
 
     idx = Dict{UInt64,Int}(grp[k] => k for k in eachindex(grp))
     var = Dict{String,Int}(names[k] => k for k in eachindex(names))
-    return FIPSTable(Tract, dat, idx, var)
+    return FIPSTable(T, dat, idx, var)
 end
 # ============================================================================ #
 function area(pts::AbstractVector{Shapefile.Point})
@@ -234,7 +235,7 @@ end
 function geoplot_data(::Type{T}, all_data::Epicast.RunData,
     names::AbstractVector{<:AbstractString}) where T<:AbstractGeo
 
-    data = data_dict(all_data, names, to_geo(T))
+    data = data_dict(T, all_data, names)
 
     states = Set(all_states(all_data.data))
 
@@ -381,7 +382,8 @@ function add_map!(ax::PyCall.PyObject, data::GeoplotData{T}, var::AbstractString
 end
 # ============================================================================ #
 function add_state_timeseries!(ax, data::GeoplotData, var::AbstractString,
-    frame::Integer=1, smooth::Bool=false, vertical::Bool=false)
+    frame::Integer=1, smooth::Bool=false, vertical::Bool=false,
+    start_date::AbstractString="")
 
     # if data are already normalized (cases-per-100k) then simply averaging
     # will maintain the proper units
@@ -416,7 +418,33 @@ function add_state_timeseries!(ax, data::GeoplotData, var::AbstractString,
     ax.spines["right"].set_visible(false)
     ax.spines["top"].set_visible(false)
     ax.set_ylabel("New cases per 100k residents", fontsize=14)
-    ax.set_xlabel("Simulation day", fontsize=14)
+
+    if !isempty(start_date)
+        if nt > 30
+            use_week = nt < 60
+            start = Dates.Date(start_date)
+            ref = Dates.Date(Dates.year(start), Dates.month(start), 1)
+            xt = Int[]
+            xtl = String[]
+            while getfield(ref - start, :value) <= nt
+                if ref >= start
+                    push!(xtl, use_week ?
+                        Dates.format(ref,"u d") :
+                        Dates.format(ref, "m/yy"))
+                    push!(xt, getfield(ref - start, :value))
+                end
+                ref += use_week ? Dates.Day(7) : Dates.Month(1)
+            end
+        else
+            xt = filter!(x -> 0 <= x < nt, ax.get_xticks())
+            xtl = map(x -> start + Dates.Day(x), xt)
+        end
+
+        ax.set_xticks(xt, xtl, rotation=45)
+        ax.set_xlabel("Date", fontsize=14)
+    else
+        ax.set_xlabel("Simulation day", fontsize=14)
+    end
 
     ncol = length(states) > 25 ? 2 : 1
 
@@ -454,7 +482,7 @@ function make_figure(data::GeoplotData{T}, var::AbstractString;
 
     nt = n_timepoint(data)
 
-    @assert(0 < frame <= nt, "give frame $(frame) is out-of-bounds")
+    @assert(0 < frame <= nt, "given frame $(frame) is out-of-bounds")
 
     nstate = n_state(data)
     width = nstate > 25 ? 15 : 14

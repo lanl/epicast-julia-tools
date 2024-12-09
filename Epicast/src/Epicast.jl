@@ -168,8 +168,8 @@ function data_groups(x::RunData)
     end
     return names
 end
-column_names(x::RunData) = collect(keys(x.data.index))
-demographic_names(x::RunData) = collect(keys(x.demog.index))
+column_names(x::RunData) = collect(keys(x.data.var_index))
+demographic_names(x::RunData) = collect(keys(x.demog.var_index))
 # ============================================================================ #
 function case_count!(out::AbstractVector, x::RunData, var::AbstractString,
     idx::AbstractVector{<:Integer})

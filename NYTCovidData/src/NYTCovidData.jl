@@ -35,7 +35,7 @@ function create_db(idir::AbstractString, up_dir::AbstractString,
 
         write(io, UInt64(size(all_data, 1))) # # of counties
         write(io, UInt64(size(all_data, 2))) # # of time points        
-        write(io, Vector{UInt8}("20200121\0")) # reference date
+        write(io, Vector{UInt8}("2020-01-21\0")) # reference date
         write(io, UInt16.(cnty)) # county FIPS as UInt16 in order
         
         write(io, all_data)

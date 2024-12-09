@@ -94,6 +94,21 @@ function read_checkpoint_file(::Type{C}, ::Type{P}, ifile::AbstractString) where
         # variant prevalence block
         seek(io, position(io) + 57 * sizeof(Float64))
 
+        wrk_sch = Vector{UInt8}(undef, 14)
+        sch_sch = Vector{UInt8}(undef, 14)
+
+        read!(io, wrk_sch)
+        read!(io, sch_sch)
+
+        println("work_schedule = ", String(wrk_sch), ", school_schedule = ", String(sch_sch))
+
+        policy_str_len = read(io, UInt64)
+        policy_str = Vector{UInt8}(undef, policy_str_len)
+
+        read!(io, policy_str)
+
+        println("poilcies: \n", String(policy_str))
+
         # RNG state block
         rng_state = Vector{UInt64}(undef, hdr.n_processor)
         read!(io, rng_state)
@@ -109,22 +124,34 @@ function read_checkpoint_file(::Type{C}, ::Type{P}, ifile::AbstractString) where
         # first_block = cell_offsets[1]
         first_block = read(io, UInt64)
         
-        # @show(Int(first_block))
+        @show(Int(first_block))
 
         seek(io, first_block)
 
         data = Vector{Community{C,P}}(undef, hdr.n_comm)
         for k = 1:hdr.n_comm
-            n_agent = read(io, UInt64)
+            n_agent = try
+                read(io, UInt64)
+            catch err
+                Main.@infiltrate
+            end
             if n_agent > 10000
                 @show(Int(n_agent))
                 continue
             end
             data[k] = Community(C, P, n_agent)
             ref = Ref(data[k].cell_data)
-            read!(io, ref)
+            try
+                read!(io, ref)
+            catch err
+                Main.@infiltrate
+            end
             data[k].cell_data = ref[]
-            read!(io, data[k].particles)
+            try
+                read!(io, data[k].particles)
+            catch err
+                Main.@infiltrate
+            end
         end
 
         return data

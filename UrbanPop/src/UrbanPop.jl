@@ -547,7 +547,7 @@ function convert_feather_dir(idir::AbstractString, odir::AbstractString)
     ofile = joinpath(odir, @sprintf("%02d.agents.bin", state[1]))
 
     # we keep a count of the total number households for assigning
-    # state-unique household ids, the actualy value get overwritten in the loop
+    # state-unique household ids, the actual values get overwritten in the loop
     # at the end of this function, but setting up unique ids in the 
     # convert_feather() loops allows them to be easily changed at the end
     hh_count = UInt32(0)

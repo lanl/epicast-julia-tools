@@ -1,0 +1,15 @@
+name = "LDTM"
+uuid = "02e928c0-8564-41e2-b148-295919f7ec7f"
+authors = ["Scottie Alexander <palexander@lanl.gov>"]
+version = "0.1.0"
+
+[deps]
+Arrow = "69666777-d1a9-59fb-9406-91d4454c9d45"
+CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
+Tables = "bd369af6-aec1-5ad0-b16a-f7cc5008161c"
+UrbanPop = "f3f28a4b-fe4e-413d-beed-473d3cb4e60c"
+
+[compat]
+Arrow = "2.7.4"
+CSV = "0.10.15"
+Tables = "1.12.0"
