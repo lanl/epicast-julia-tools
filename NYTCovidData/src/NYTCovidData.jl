@@ -253,7 +253,7 @@ function read_covid_data(ifile::AbstractString)
     open(ifile, "r") do io
         n_cnty = read(io, UInt64) # # of counties
         n_tp = read(io, UInt64) # # of time points
-        date = String(read(io, 9)[1:8]) # reference date
+        date = String(read(io, 11)[1:10]) # reference date
 
         # fips code for each county
         county_fips = Vector{UInt16}(undef, n_cnty)

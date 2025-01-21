@@ -24,7 +24,7 @@ struct FIPSTable{G<:AbstractGeo,T,N}
     data::Array{T,N}# time x fips x var | fips x var | fips x 1
 end
 # ---------------------------------------------------------------------------- #
-FIPSTable(::Val{N}=Val(1)) where N = FIPSTable{Tract,Float64,N}(Dict{UInt64,Int}(), Dict{String,Int}(), Array{Float64,N}(undef, 0, 0))
+FIPSTable(::Val{N}=Val(1)) where N = FIPSTable{Tract,Float64,N}(Dict{UInt64,Int}(), Dict{String,Int}(), Array{Float64,N}(undef, tuple(zeros(Int,N)...)))
 # ---------------------------------------------------------------------------- #
 function FIPSTable(::Type{G}, data::Array{T,1}, fips_index::Dict{UInt64,Int},
     var::AbstractString) where {T,G<:AbstractGeo}
@@ -54,8 +54,8 @@ has_var(tbl::FIPSTable, var::AbstractString) = haskey(tbl.var_index, var)
 filter_vars(f::Function, tbl::FIPSTable) = sort!(filter(f, all_vars(tbl)))
 
 data_array(tbl::FIPSTable) = tbl.data
-# ---------------------------------------------------------------------------- #
-@inline function check_var(tbl::FIPSTable{G,T,1}) where {T,G}
+# --------------------------------------------------------------------------- #
+@inline function check_var(tbl::FIPSTable{G,T,1}, var::AbstractString) where {G,T}
     @assert(haskey(tbl.var_index, var), "variable $(var) not found")
     return true
 end
@@ -119,10 +119,10 @@ function aggregate!(out::Array{T,1}, k::Integer, tbl::FIPSTable{G,L,1},
     fips::AbstractVector{<:Integer}, do_avg::Bool) where {T<:Number, G<:AbstractGeo,L<:Number}
 
     for x in fips
-        out[k] .+= tbl[x]
+        out[k] += tbl[x]
     end
     if do_avg
-        out[k] ./= length(fips)
+        out[k] /= length(fips)
     end
     return out
 end
@@ -155,14 +155,11 @@ aggregate_state(tbl::FIPSTable, avg::Bool) = aggregate(State, tbl, avg)
 aggregate_county(tbl::FIPSTable, avg::Bool) = aggregate(County, tbl, avg)
 aggregate_tract(tbl::FIPSTable, avg::Bool) = aggregate(Tract, tbl, avg)
 # ============================================================================ #
-function all_states(tbl::FIPSTable{G}) where G
-    return sort!(unique(div.(all_fips(tbl), geo_conversion(G, State))))
+function all_geo(::Type{T}, tbl::FIPSTable{G}) where {G,T<:AbstractGeo}
+    return sort!(unique(div.(all_fips(tbl), geo_conversion(G, T))))
 end
-function all_counties(tbl::FIPSTable{G}) where G
-    return sort!(unique(div.(all_fips(tbl), geo_conversion(G, County))))
-end
-function all_tracts(tbl::FIPSTable{G}) where G
-    return sort!(unique(div.(all_fips(tbl), geo_conversion(G, Tract))))
-end
+all_states(tbl::FIPSTable) = all_geo(State, tbl)
+all_counties(tbl::FIPSTable) = all_geo(County, tbl)
+all_tracts(tbl::FIPSTable) = all_geo(Tract, tbl)
 # ============================================================================ #
 end # module EpicastTables

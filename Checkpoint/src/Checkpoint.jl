@@ -29,6 +29,13 @@ function Base.show(io::IO, x::CheckpointHeader)
         ", ", Int(x.n_processor))
 end
 # ============================================================================ #
+struct CountyCases
+    cumulative_cases::UInt32
+    new_cases::UInt32
+    cumulative_deaths::UInt32
+    new_deaths::UInt32
+end
+# ============================================================================ #
 function remove_unused!(c::Vector{Community{A,B}}) where {A,B}
     return filter!(c) do x
         return x.cell_data.tract != CELL_UNUSED && x.cell_data.community != CELL_UNUSED
@@ -77,16 +84,16 @@ function read_checkpoint_file(::Type{C}, ::Type{P}, ifile::AbstractString) where
         seek(io, position(io) + hdr.parameters_size)
 
         # tract data block
-        # tracts = Vector{UrbanPop.Tract}(undef, hdr.n_tract)
-        # read!(io, tracts)
-        seek(io, position(io) + hdr.n_tract * sizeof(UrbanPop.Tract))
+        tracts = Vector{UrbanPop.Tract}(undef, hdr.n_tract)
+        read!(io, tracts)
+        # seek(io, position(io) + hdr.n_tract * sizeof(UrbanPop.Tract))
 
         # index cases and counties block
         # index_counties = Vector{UInt32}(undef, hdr.n_hub)
         # index_cases = Vector{UInt32}(undef, hdr.n_hub)
         # read!(io, index_counties)
         # read!(io, index_cases)
-        seek(io, position(io) + hdr.n_hub * sizeof(UInt32) * 2)
+        seek(io, position(io) + hdr.n_hub * (sizeof(UInt16) + sizeof(CountyCases)))
 
         # flight_matrix block
         seek(io, position(io) + 57 * 57 * sizeof(UInt32))
@@ -130,31 +137,20 @@ function read_checkpoint_file(::Type{C}, ::Type{P}, ifile::AbstractString) where
 
         data = Vector{Community{C,P}}(undef, hdr.n_comm)
         for k = 1:hdr.n_comm
-            n_agent = try
-                read(io, UInt64)
-            catch err
-                Main.@infiltrate
-            end
+            n_agent = read(io, UInt64)
             if n_agent > 10000
                 @show(Int(n_agent))
                 continue
             end
             data[k] = Community(C, P, n_agent)
             ref = Ref(data[k].cell_data)
-            try
-                read!(io, ref)
-            catch err
-                Main.@infiltrate
-            end
+            read!(io, ref)
+
             data[k].cell_data = ref[]
-            try
-                read!(io, data[k].particles)
-            catch err
-                Main.@infiltrate
-            end
+            read!(io, data[k].particles)
         end
 
-        return data
+        return data, tracts
     end
 end
 # ============================================================================ #

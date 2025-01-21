@@ -53,7 +53,9 @@ function generate_schoolgroup_file(counties::AbstractVector{<:Integer},
     student_data = CSV.File(student_file, header=7, footerskip=7)
     teacher_data = CSV.File(teacher_file, header=7, footerskip=7)
 
-    all_counties = parse_number.(Int, student_data["County Number [District] 2019-20"], 0)
+    all_counties_student = parse_number.(Int, student_data["County Number [District] 2019-20"], 0)
+
+    all_counties_teacher = parse_number.(Int, teacher_data["County Number [District] 2019-20"], 0)
     # counties = sort!(filter!(>(0), unique(all_counties)))
 
     s_cols = [
@@ -89,21 +91,22 @@ function generate_schoolgroup_file(counties::AbstractVector{<:Integer},
     out = fill(NaN, length(counties), 4)
 
     for k in eachindex(counties)
-        idx = findall(isequal(counties[k]), all_counties)
-        if length(idx) > 0
+        student_idx = findall(isequal(counties[k]), all_counties_student)
+        teacher_idx = findall(isequal(counties[k]), all_counties_teacher)
+        if length(student_idx) > 0
 
-            pt_ratio_cnty = nanmean(pt_ratio[idx])
+            pt_ratio_cnty = nanmean(pt_ratio[teacher_idx])
             
             for j in eachindex(s_cols)
                 # total # of student in each county of each age / grade group
                 tmp = sum(x -> parse_number(Float64, x, 0.0),
-                    student_data[s_cols[j]][idx])
+                    student_data[s_cols[j]][student_idx])
                 out[k, col_idx[j]] = nanadd(out[k, col_idx[j]], tmp)
             end
             
             for j in eachindex(t_cols)
                 # # of students per teacher
-                nt = sum(x -> parse_number(Float64, x, 0.0), teacher_data[t_cols[j]][idx])
+                nt = sum(x -> parse_number(Float64, x, 0.0), teacher_data[t_cols[j]][teacher_idx])
 
                 out[k, j] /= nt
 
