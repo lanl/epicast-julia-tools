@@ -46,7 +46,7 @@ function case_count!(out::AbstractVector, x::Epicast.RunData,
     elseif startswith(var, "infection-src")
         # % of infections attributable to given context
         out .= Epicast.new_cases(in)
-        out ./= Epicast.new_cases(view(Epicast.rundata(x, "total"), idx, :))
+        out ./= Epicast.new_cases(view(Epicast.rundata(x, "total"), :, idx))
 
     elseif startswith(var, "status_")
         # % of total agents w/in geography that are in given state
@@ -650,7 +650,7 @@ function epidemic_overview(data::GeoplotData, var::AbstractString,
         add_frame!(h, ax[k], nothing, data, var, frames[k])
     end
 
-    mx2, time_idc = EpicastGeoplot.add_state_timeseries!(ax[end], data, var,
+    mx2, time_idc = add_state_timeseries!(ax[end], data, var,
         frames[1], false, start_date, n_geo, timeseries_geo)
 
     ax[end].text(frames[1]-1,time_idc.get_ydata()[2], string(frames[1]-1),
@@ -679,11 +679,11 @@ end
 function add_frame!(h, ax, cbax, data::GeoplotData, var::AbstractString,
     frame::Integer)
     
-    norm, cm, hp = EpicastGeoplot.add_map!(ax, data, var, frame)
+    norm, cm, hp = add_map!(ax, data, var, frame)
 
     if cbax != nothing
         cb = h.colorbar(
-            PyPlot.matplotlib.cm.ScalarMappable(norm=EpicastGeoplot.mpl_norm(norm),
+            PyPlot.matplotlib.cm.ScalarMappable(norm=mpl_norm(norm),
                 cmap=cm),
             cax = cbax
         )
