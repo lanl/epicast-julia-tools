@@ -29,6 +29,13 @@ function Base.show(io::IO, x::CheckpointHeader)
         ", ", Int(x.n_processor))
 end
 # ============================================================================ #
+struct CountyCases
+    cumulative_cases::UInt32
+    new_cases::UInt32
+    cumulative_deaths::UInt32
+    new_deaths::UInt32
+end
+# ============================================================================ #
 function remove_unused!(c::Vector{Community{A,B}}) where {A,B}
     return filter!(c) do x
         return x.cell_data.tract != CELL_UNUSED && x.cell_data.community != CELL_UNUSED
@@ -77,22 +84,37 @@ function read_checkpoint_file(::Type{C}, ::Type{P}, ifile::AbstractString) where
         seek(io, position(io) + hdr.parameters_size)
 
         # tract data block
-        # tracts = Vector{UrbanPop.Tract}(undef, hdr.n_tract)
-        # read!(io, tracts)
-        seek(io, position(io) + hdr.n_tract * sizeof(UrbanPop.Tract))
+        tracts = Vector{UrbanPop.Tract}(undef, hdr.n_tract)
+        read!(io, tracts)
+        # seek(io, position(io) + hdr.n_tract * sizeof(UrbanPop.Tract))
 
         # index cases and counties block
         # index_counties = Vector{UInt32}(undef, hdr.n_hub)
         # index_cases = Vector{UInt32}(undef, hdr.n_hub)
         # read!(io, index_counties)
         # read!(io, index_cases)
-        seek(io, position(io) + hdr.n_hub * sizeof(UInt32) * 2)
+        seek(io, position(io) + hdr.n_hub * (sizeof(UInt16) + sizeof(CountyCases)))
 
         # flight_matrix block
         seek(io, position(io) + 57 * 57 * sizeof(UInt32))
 
         # variant prevalence block
         seek(io, position(io) + 57 * sizeof(Float64))
+
+        wrk_sch = Vector{UInt8}(undef, 14)
+        sch_sch = Vector{UInt8}(undef, 14)
+
+        read!(io, wrk_sch)
+        read!(io, sch_sch)
+
+        println("work_schedule = ", String(wrk_sch), ", school_schedule = ", String(sch_sch))
+
+        policy_str_len = read(io, UInt64)
+        policy_str = Vector{UInt8}(undef, policy_str_len)
+
+        read!(io, policy_str)
+
+        println("poilcies: \n", String(policy_str))
 
         # RNG state block
         rng_state = Vector{UInt64}(undef, hdr.n_processor)
@@ -109,7 +131,7 @@ function read_checkpoint_file(::Type{C}, ::Type{P}, ifile::AbstractString) where
         # first_block = cell_offsets[1]
         first_block = read(io, UInt64)
         
-        # @show(Int(first_block))
+        @show(Int(first_block))
 
         seek(io, first_block)
 
@@ -123,11 +145,12 @@ function read_checkpoint_file(::Type{C}, ::Type{P}, ifile::AbstractString) where
             data[k] = Community(C, P, n_agent)
             ref = Ref(data[k].cell_data)
             read!(io, ref)
+
             data[k].cell_data = ref[]
             read!(io, data[k].particles)
         end
 
-        return data
+        return data, tracts
     end
 end
 # ============================================================================ #
@@ -348,6 +371,104 @@ function validate_checkpoint(ck_file::AbstractString, tr_file::AbstractString,
     end
 
     return n
+end
+# ============================================================================ #
+function count_daygroups(c::Community{CellData,Particle})
+
+    sg_count = zeros(Int, 6)
+    sg_ngrps = zeros(Int, 6)
+    sg_grps = Set{Int}()
+    wg_count = zeros(Int, 1000)
+    wg_ngrps = zeros(Int, 1000)
+    wg_grps = Set{Int}()
+
+    for pt in c.particles
+        school = pt.school
+        naics = pt.naics_code
+        if school > 0
+            sg_count[school] += 1
+            if !in(pt.daygroup, sg_grps)
+                sg_ngrps[school] += 1
+                push!(sg_grps, pt.daygroup)
+            end
+        elseif naics > 0
+            pt.employment < 1 && @warn("Agent $(pt.agent_id) naics > 0 by unemployed?")
+            wg_count[naics] += 1
+            if !in(pt.daygroup, wg_grps)
+                wg_ngrps[naics] += 1
+                push!(wg_grps, pt.daygroup)
+            end
+        end
+    end
+
+    return sg_count ./ sg_ngrps, wg_count ./ wg_ngrps
+end
+# ============================================================================ #
+function validate_daygroups(cp_file::AbstractString, tr_file::AbstractString)
+
+    tracts = UrbanPop.read_tract_file(tr_file)
+
+    data = read_checkpoint_file(cp_file)
+
+
+
+end
+# ============================================================================ #
+is_student(x) = x.naics_code != 611 && x.school != 0
+is_teacher(pt) = pt.naics_code == 611
+function school_stats(cp_file::AbstractString, tr_file::AbstractString)
+
+    data = read_checkpoint_file(cp_file)
+    tr = UrbanPop.read_tract_file(tr_file)
+    res = Dict{Int,Dict{Int,Vector{Int}}}()
+
+    for j in eachindex(data)
+        fips = div(tr[data[j].cell_data.tract+1].fips_code,10^6)
+        if !haskey(res, fips)
+            res[fips] = Dict{Int,Vector{Int}}()
+        end
+        for k in eachindex(data[j].particles)
+            if is_student(data[j].particles[k])
+                id = data[j].particles[k].school
+                field = min(abs(id),6)
+                tmp = get(res[fips], field, zeros(Int,2))
+                if id > 0
+                    tmp[1] += 1
+                else
+                    tmp[2] += 1
+                end
+                res[fips][field] = tmp
+            end
+        end
+    end
+
+    out =  Dict{Int,Dict{Int,Float64}}()
+    for (cnty, d) in res
+        out[cnty] = Dict( id => v[1] / (v[1]+v[2]) for (id,v) in d)
+    end
+
+    return out
+end
+# ============================================================================ #
+is_working(x) = x.employment > 0 && (x.work == floor.(Int, x.r))
+function work_stats(cp_file::AbstractString)
+    data = read_checkpoint_file(cp_file)
+    out = Dict{Int,NamedTuple{(:w,:n),Tuple{Int,Int}}}()
+
+    for j in eachindex(data)
+        for k in eachindex(data[j].particles)
+            nc = div(data[j].particles[k].naics_code, 10)
+            if nc > 0 && is_working(data[j].particles[k])
+                tmp = get(out, nc, (w=0,n=0))
+                out[nc] = (w=tmp.w + 1, n=tmp.n)
+            elseif nc > 0
+                tmp = get(out, nc, (w=0,n=0))
+                out[nc] = (w=tmp.w, n=tmp.n+1)
+            end
+        end
+    end
+
+    return Dict(k => v.w / (v.w + v.n) for (k,v) in out)
 end
 # ============================================================================ #
 end

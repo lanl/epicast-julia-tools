@@ -2,11 +2,8 @@ module Epicast
 
 using DelimitedFiles, PyPlot, Colors, Statistics
 
-const TRACT2STATE = 10^9
-const TRACT2COUNTY = 10^6
-const COUNTY2STATE = 10^3
+using EpicastTables
 
-export TRACT2STATE, TRACT2COUNTY, COUNTY2STATE
 # ============================================================================ #
 function epi_plot(idir::AbstractString, run::Integer=2)
 
@@ -147,38 +144,23 @@ function parse_attackfile(ifile::AbstractString)
     return readdlm(ifile, skipstart=1)
 end
 # ============================================================================ #
-function run_index(names::AbstractVector{<:AbstractString})
-    return Dict{String,Int}(y => x for (x,y) in enumerate(names))
+function run_index(items::AbstractVector{T}) where T
+    return Dict{T,Int}(y => x for (x,y) in enumerate(items))
 end
-# ============================================================================ #
-struct EpicastTable{T,N}
-    index::Dict{String,Int}
-    data::Array{T,N}
-end
-Base.getindex(x::EpicastTable{<:Any,2}, s::AbstractString) = view(x.data, :, x.index[s])#x.data[:, x.index[s]]
-Base.getindex(x::EpicastTable{<:Any,3}, s::AbstractString) = view(x.data, :, x.index[s], :)#x.data[:, x.index[s], :]
-function match_columns(f::Function, x::EpicastTable)
-    idx = Vector{Int}(undef, 0)
-    for key in keys(x.index)
-        f(key) && push!(idx, x.index[key])
-    end
-    return sort!(idx)
-end
-filter_columns(f::Function, x::EpicastTable) = sort!(filter(f, collect(keys(x.index))))
 # ============================================================================ #
 abstract type AbstractRunData end
 # ============================================================================ #
 struct RunData{T} <: AbstractRunData
-    demog::EpicastTable{T,2}
-    data::EpicastTable{T,3}
+    demog::FIPSTable{Tract,T,2}
+    data::FIPSTable{Tract,T,3}
     fips::Vector{UInt64}
     runno::String
 end
 rundata(x::RunData, s::AbstractString) = x.data[s]
-has_data(x::RunData, s::AbstractString) = haskey(x.data.index, s)
+has_data(x::RunData, s::AbstractString) = EpicastTables.has_var(x.data, s)
 demographics(x::RunData, s::AbstractString) = x.demog[s]
-n_timepoint(x::RunData) = size(x.data.data, 3)
-has_demographic(x::RunData, s::AbstractString) = haskey(x.demog.index, s)
+n_timepoint(x::RunData) = size(x.data.data, 1)
+has_demographic(x::RunData, s::AbstractString) = EpicastTables.has_var(x.demog, s)
 function data_groups(x::RunData)
     names = Set{String}()
     for k in keys(x.data.index)
@@ -186,8 +168,8 @@ function data_groups(x::RunData)
     end
     return names
 end
-column_names(x::RunData) = collect(keys(x.data.index))
-demographic_names(x::RunData) = collect(keys(x.demog.index))
+column_names(x::RunData) = collect(keys(x.data.var_index))
+demographic_names(x::RunData) = collect(keys(x.demog.var_index))
 # ============================================================================ #
 function case_count!(out::AbstractVector, x::RunData, var::AbstractString,
     idx::AbstractVector{<:Integer}, norm::AbstractString="")
@@ -216,7 +198,7 @@ function group_by(x::RunData, name::AbstractString, conv::Integer,
     if has_data(x, name)
         cols = [name]
     else
-        cols = filter_columns(x -> startswith(x, name), x.data)
+        cols = filter_vars(x -> startswith(x, name), x.data)
     end
 
     dat, grp = group_by(x, cols, conv, fcases!, norms)
@@ -261,7 +243,7 @@ function read_runfile_header(io::IO, ::Type{T}=UInt32) where T <: Integer
 
     demo_buf = Vector{UInt8}(undef, demo_len)
     read!(io, demo_buf)
-    demo_names = split(String(demo_buf), '\0', keepempty=false)
+    demo_names = map(string, split(String(demo_buf), '\0', keepempty=false))
 
     col_buf = Vector{UInt8}(undef, col_len)
     read!(io, col_buf)
@@ -276,7 +258,7 @@ function read_runfile_header(io::IO, ::Type{T}=UInt32) where T <: Integer
     read!(io, demo)
 
     return nrow, ncol, n_pt, col_names, fips,
-        EpicastTable{T,2}(run_index(demo_names), demo)
+        FIPSTable{Tract,T,2}(run_index(fips), run_index(demo_names), demo)
 end
 # ============================================================================ #
 function read_runfile(ifile::AbstractString, ::Type{T}=UInt32) where T <: Integer
@@ -301,7 +283,11 @@ function read_runfile(ifile::AbstractString, ::Type{T}=UInt32) where T <: Intege
 
         return RunData{T}(
             demo,
-            EpicastTable{T,3}(run_index(col_names), data),
+            FIPSTable{Tract,T,3}(
+                run_index(fips),
+                run_index(map(string, col_names)),
+                permutedims(data, (3,1,2))
+            ),
             fips,
             m[1]
         )
@@ -343,26 +329,32 @@ function read_agent_transitions(io::IO)
     return data
 end
 # ============================================================================ #
-function RunData(demog::EpicastTable{2}, data::Vector{AgentTransition},
-    fips::Vector{UInt64}, n_pt::Integer, run::AbstractString)
+function RunData(demog::FIPSTable{G,T,2}, data::Vector{AgentTransition},
+    fips::Vector{UInt64}, n_pt::Integer, run::AbstractString) where {G,T}
 
     mp = Dict{UInt64,Int}(id => k for (k,id) in enumerate(fips))
 
-    tmp = zeros(UInt32, length(fips), 1, n_pt)
+    tmp = zeros(T, n_pt, length(fips), 1)
 
-    for d in data
+    # count files do not include index cases
+    for d in filter(x -> x.state == 0x01 && x.context != 0xff, data)
         r = mp[tract_fips(d)]
         s = div(d.timestep, 2) + 1
 
         # count files store data as cumulative sum, so compute that as we go
-        view(tmp, r, 1, s:n_pt) .+= 1
+        view(tmp, s:n_pt, r, 1) .+= 1
     end
 
-    return RunData(demog, EpicastTable{3}(run_index(["total"]), tmp), fips, run)
+    return RunData{T}(
+        demog,
+        FIPSTable{G,T,3}(run_index(fips), run_index(["total"]), tmp),
+        fips,
+        run
+    )
 end
 # ============================================================================ #
 struct EventData <: AbstractRunData
-    demog::EpicastTable{2}
+    demog::FIPSTable{Tract,UInt32,2}
     events::Vector{AgentTransition}
     fips::Vector{UInt64}
     n_pt::UInt64
@@ -387,10 +379,10 @@ end
 read_eventfile(ifile::AbstractString) = read_eventfile(RunData, ifile)
 # ============================================================================ #
 total_cases(x::AbstractVector{<:Real}) = x
-total_cases(x::AbstractMatrix{<:Real}) = dropdims(sum(x, dims=1),dims=1)
+total_cases(x::AbstractMatrix{<:Real}) = dropdims(sum(x, dims=2),dims=2)
 # ============================================================================ #
 function new_cases(x::AbstractMatrix{<:Real}, f::Function=sum)
-    out = dropdims(f(x, dims=1),dims=1)
+    out = dropdims(f(x, dims=2),dims=2)
     out[2:end] .= diff(out)
     return out
 end
@@ -401,7 +393,7 @@ function new_cases(x::AbstractVector{<:Real}, f::Function=sum)
 end
 mean_new_cases(x) = new_cases(x, mean)
 # ============================================================================ #
-function plot_all_multi(data::RunData, odir::AbstractString)
+function plot_all_multi(data::RunData, odir::AbstractString; ext::AbstractString="png")
     PyPlot.ioff()
 
     h, ax = plot_run(data, "total", freduce=mean_new_cases, normalize=true,
@@ -410,7 +402,9 @@ function plot_all_multi(data::RunData, odir::AbstractString)
     ax.get_legend().remove()
     h.tight_layout()
 
-    h.savefig(joinpath(odir, "total-cases_$(data.runno).png"), dpi=200)
+    ext = startswith(ext, '.') ? ext[2:end] : ext
+
+    h.savefig(joinpath(odir, "total-cases_$(data.runno)." * ext), dpi=200)
 
     PyPlot.close(h)
 
@@ -433,7 +427,7 @@ function plot_all_multi(data::RunData, odir::AbstractString)
 
         h.tight_layout()
 
-        h.savefig(joinpath(odir, "demographic-cases_$(data.runno).png"), dpi=200)
+        h.savefig(joinpath(odir, "demographic-cases_$(data.runno)." * ext), dpi=200)
 
         PyPlot.close(h)
     end
@@ -457,7 +451,7 @@ function plot_all_multi(data::RunData, odir::AbstractString)
 
         h.tight_layout()
 
-        h.savefig(joinpath(odir, "treatment-status_$(data.runno).png"), dpi=200)
+        h.savefig(joinpath(odir, "treatment-status_$(data.runno)." * ext), dpi=200)
 
         PyPlot.close(h)
     end
@@ -469,7 +463,7 @@ function plot_all_multi(data::RunData, odir::AbstractString)
 
         h.tight_layout()
 
-        h.savefig(joinpath(odir, "infection-context_$(data.runno).png"), dpi=200)
+        h.savefig(joinpath(odir, "infection-context_$(data.runno)." * ext), dpi=200)
 
         PyPlot.close(h)
     end
@@ -480,7 +474,7 @@ function plot_all_multi(data::RunData, odir::AbstractString)
 
         h.tight_layout()
 
-        h.savefig(joinpath(odir, "infection-status_$(data.runno).png"), dpi=200)
+        h.savefig(joinpath(odir, "infection-status_$(data.runno)." * ext), dpi=200)
 
         PyPlot.close(h)
 
@@ -548,7 +542,7 @@ end
 function plot_states(data::RunData, ofile::AbstractString; title::AbstractString="")
 
     # 10^9 -> FIPS tract to state conversion
-    dat, lab = group_by(data, "total", TRACT2STATE, case_count!)
+    dat, lab = group_by(data, "total", EpicastTables.TRACT2STATE, case_count!)
 
     PyPlot.ioff()
     h, ax = subplots(1,1)
@@ -585,47 +579,13 @@ function plot_states(data::RunData, ofile::AbstractString; title::AbstractString
     return nothing
 end
 # ============================================================================ #
-function plot_run(data::RunData, name::AbstractString; freduce=total_cases,
-    normalize::Bool=false, dropname::Bool=false, ylab::String="",
-    title::String="", h=nothing, ax=nothing, style::Function=(h, ax) -> nothing)
+function plot_run(data::Vector{RunData{T}}, name::AbstractString; args...) where T<:Number
 
-    cols = filter_columns(x -> startswith(x, name), data.data)
-    if h == nothing || ax == nothing
-        h, ax = subplots(1, 1)
-        h.set_size_inches((8,6))
+    h, ax = (nothing,nothing)
+
+    for d in data
+        h, ax = plot_run(d, name; h=h, ax=ax, args...)
     end
-
-    t = 1:n_timepoint(data)
-
-    rm = dropname ? name * "_" => "" : "_" => " "
-
-    colors = map(col -> (red(col), green(col), blue(col)),
-        distinguishable_colors(length(cols), [RGB(1,1,1), RGB(0,0,0)],
-            dropseed=true)
-    )
-
-    for (k, col) in enumerate(cols)
-        dat = Float64.(rundata(data, col))
-        if normalize && has_demographic(data, col)
-            tmp2 = demographics(data, col)
-            dat ./= tmp2
-            replace!(x -> isnan(x) || isinf(x) ? 0.0 : x, dat)
-        end
-        tmp = freduce(dat)
-        ax.plot(t, tmp, label=replace(col, rm), color=colors[k])
-    end
-
-    ax.spines["top"].set_visible(false)
-    ax.spines["right"].set_visible(false)
-    ax.set_xlabel("Simulation day", fontsize=14)
-
-    !isempty(ylab) && ax.set_ylabel(ylab, fontsize=14)
-    !isempty(title) && ax.set_title(title, fontsize=18)
-
-    ax.legend(fontsize=14, frameon=false)
-    style(h, ax)
-
-    h.tight_layout()
 
     return h, ax
 end
@@ -702,6 +662,86 @@ function plot_runs(data, name::AbstractString; freduce=total_cases, reduce_cols=
 
     ax.legend(fontsize=14, frameon=false)
     style(h, ax)
+
+    h.tight_layout()
+
+    return h, ax
+end
+# ============================================================================ #
+function plot_run(data::RunData, name::AbstractString; freduce=total_cases,
+    normalize::Bool=false, dropname::Bool=false, ylab::String="",
+    title::String="", h=nothing, ax=nothing, style::Function=(h, ax) -> nothing)
+
+    cols = filter_vars(x -> startswith(x, name), data.data)
+    if h == nothing || ax == nothing
+        h, ax = subplots(1, 1)
+        h.set_size_inches((8,6))
+    end
+
+    t = 1:n_timepoint(data)
+
+    rm = dropname ? name * "_" => "" : "_" => " "
+
+    colors = map(col -> (red(col), green(col), blue(col)),
+        distinguishable_colors(length(cols), [RGB(1,1,1), RGB(0,0,0)],
+            dropseed=true)
+    )
+
+    for (k, col) in enumerate(cols)
+        dat = Float64.(rundata(data, col))
+        if normalize && has_demographic(data, col)
+            tmp2 = demographics(data, col)
+            dat ./= reshape(tmp2, 1, length(tmp2))
+            replace!(x -> isnan(x) || isinf(x) ? 0.0 : x, dat)
+        end
+        tmp = freduce(dat)
+        ax.plot(t, tmp, label=replace(col, rm), color=colors[k])
+    end
+
+    ax.spines["top"].set_visible(false)
+    ax.spines["right"].set_visible(false)
+    ax.set_xlabel("Simulation day", fontsize=14)
+
+    !isempty(ylab) && ax.set_ylabel(ylab, fontsize=14)
+    !isempty(title) && ax.set_title(title, fontsize=18)
+
+    ax.legend(fontsize=14, frameon=false)
+    style(h, ax)
+
+    h.tight_layout()
+
+    return h, ax
+end
+# ============================================================================ #
+function plot_infection_src(data::RunData)
+    fields = ["family","work","school","neighborhood-cluster","neighborhood"]
+    total = Epicast.new_cases(Epicast.rundata(data, "total"))
+    d = zeros(Float64, Epicast.n_timepoint(data), length(fields))
+    for k in eachindex(fields)
+        d[:,k] .= Epicast.new_cases(Epicast.rundata(data, "infection-src_" * fields[k]))
+    end
+    d ./= total
+
+    h, ax = subplots(1,1)
+
+    h.set_size_inches((10,6))
+
+    ax.plot(d, linewidth=2.5)
+
+    ax[:spines]["right"].set_visible(false)
+    ax[:spines]["top"].set_visible(false)
+
+    ax[:spines]["left"].set_linewidth(2.5)
+    ax[:spines]["bottom"].set_linewidth(2.5)
+
+    ax.xaxis.set_tick_params(width=2.5)
+    ax.yaxis.set_tick_params(width=2.5)
+
+    ax.legend(fields, fontsize=12, frameon=false, loc="upper left",
+        bbox_to_anchor=(0.9,1.0))
+
+    ax.set_ylabel("Proportion of total cases", fontsize=14)
+    ax.set_xlabel("Simulation time (days)", fontsize=14)
 
     h.tight_layout()
 

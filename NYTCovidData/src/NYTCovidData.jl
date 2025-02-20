@@ -35,7 +35,7 @@ function create_db(idir::AbstractString, up_dir::AbstractString,
 
         write(io, UInt64(size(all_data, 1))) # # of counties
         write(io, UInt64(size(all_data, 2))) # # of time points        
-        write(io, Vector{UInt8}("20200121\0")) # reference date
+        write(io, Vector{UInt8}("2020-01-21\0")) # reference date
         write(io, UInt16.(cnty)) # county FIPS as UInt16 in order
         
         write(io, all_data)
@@ -246,6 +246,25 @@ function inv_sample(x::AbstractVector{<:AbstractFloat}, d::Float64=rand())
         @inbounds d < x[k] && return k
     end
     return -1
+end
+# ============================================================================ #
+function read_covid_data(ifile::AbstractString)
+
+    open(ifile, "r") do io
+        n_cnty = read(io, UInt64) # # of counties
+        n_tp = read(io, UInt64) # # of time points
+        date = String(read(io, 11)[1:10]) # reference date
+
+        # fips code for each county
+        county_fips = Vector{UInt16}(undef, n_cnty)
+        read!(io, county_fips)
+        
+        data = Matrix{Datum}(undef, n_cnty, n_tp)
+        read!(io, data)
+
+        return data, county_fips, date
+    end
+
 end
 # ============================================================================ #
 end

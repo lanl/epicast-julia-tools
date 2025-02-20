@@ -4,6 +4,8 @@ using Mmap, SHA
 
 using Arrow, Tables, Printf, Query
 
+using EpicastTables
+
 const NAICS_DIGITS = 3
 # ============================================================================ #
 struct Agent
@@ -545,7 +547,7 @@ function convert_feather_dir(idir::AbstractString, odir::AbstractString)
     ofile = joinpath(odir, @sprintf("%02d.agents.bin", state[1]))
 
     # we keep a count of the total number households for assigning
-    # state-unique household ids, the actualy value get overwritten in the loop
+    # state-unique household ids, the actual values get overwritten in the loop
     # at the end of this function, but setting up unique ids in the 
     # convert_feather() loops allows them to be easily changed at the end
     hh_count = UInt32(0)
@@ -904,6 +906,91 @@ function locale_counts(ifile::AbstractString)
     n_tract = length(tmp)
     n_county = length(Set(div.(tracts, 10^6)))
     return n_county, n_tract
+end
+# ============================================================================ #
+@inline agent_state(id::Integer) = id >> 58
+
+@inline agent_id(id::Integer) = id & ~(UInt64(0b111111) << 58)
+
+function agent_id_lt(a::Integer, b::Integer)
+    return agent_state(a) == agent_state(b) ? agent_id(a) < agent_id(b) :
+        agent_state(a) < agent_state(b)
+end
+# ============================================================================ #
+function fetch_agent_demographics(agent_ids::AbstractVector{T},
+    agent_dir::AbstractString) where T<:Integer
+
+    ks = sortperm(agent_ids, lt=agent_id_lt)
+    ids = agent_ids[ks]
+    all_states = agent_state.(ids)
+    states = unique(all_states)
+
+    # out = Dict{T, Agent}()
+    out = Vector{Agent}(undef, length(agent_ids))
+    kf = 1
+    for state in states
+        raw = memmap(joinpath(agent_dir, lpad(state, 2, '0') * ".agents.bin"))
+        kl = searchsortedlast(all_states, state)
+        for k in kf:kl
+            out[k] = raw[agent_id(ids[k]) + 1]
+        end
+        kf = kl + 1
+    end
+
+    return out[invperm(ks)]
+end
+# ============================================================================ #
+@inline bgstr2geoid(x::AbstractString, conv::Integer) = div(parse(Int, x), conv)
+# ============================================================================ #
+function dt_nt_get_populations(idir::AbstractString; role::AbstractString="",
+    state::Integer=35)
+    return dt_nt_get_populations(BlockGroup, idir, role=role, state=state)
+end
+# ---------------------------------------------------------------------------- #
+function dt_nt_get_populations(::Type{G}, idir::AbstractString; role::AbstractString="",
+    state::Integer=35) where {G<:AbstractGeo}
+
+    files = find_files(idir, r".*\.feather$")
+
+    var_index = Dict{String,Int}("delta_pop"=>1)
+
+    g_conv = EpicastTables.geo_conversion(BlockGroup, G)
+    state_conv = EpicastTables.geo_conversion(G, State)
+
+    # [nighttime (dest), daytime (orig)]
+    out = [Dict{UInt64,Int}(), Dict{UInt64,Int}()]
+    for file in files
+        tbl = Arrow.Table(file)
+        idx = isempty(role) ? collect(1:length(tbl[:role])) : findall(isequal(role), tbl[:role])
+
+        # [nighttime (dest), daytime (orig)]
+        for (k,field) in enumerate([:orig_geoid, :dest_geoid])
+            all_geo = map(x -> bgstr2geoid(x, g_conv), tbl[field][idx])
+            geo = filter!(unique(all_geo)) do g
+                return div(g, state_conv) == state
+            end
+
+            for g in geo
+                out[k][g] = get(out, g, 0) + count(isequal(g), all_geo)
+            end
+        end
+    end
+
+    # @show(out[1][350010018002], out[2][350010018002])
+
+    all_fips = sort!(union(collect(keys(out[1])), collect(keys(out[2]))))
+
+    fips_index = Dict{UInt64,Int}(v => k for (k,v) in enumerate(all_fips))
+
+    data = zeros(Float64, length(fips_index), 1)
+
+    for fips in all_fips
+        # daytime - nighttime
+        data[fips_index[fips],1] = (get(out[2], fips, 0) - get(out[1], fips, 0))# /
+            #get(out[1], fips, 0)
+    end
+
+    return FIPSTable{G,Float64,2}(fips_index, var_index, data)
 end
 # ============================================================================ #
 end # module UrbanPop

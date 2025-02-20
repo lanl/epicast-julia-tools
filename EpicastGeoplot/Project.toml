@@ -5,7 +5,9 @@ version = "0.1.0"
 
 [deps]
 Colors = "5ae59095-9a9b-59fe-a467-6f913c188581"
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
 Epicast = "cbb96616-a3d1-4d5e-a40b-9319cdaf6efd"
+EpicastTables = "7f8b32be-ad0a-4d41-97a2-963287e4efb7"
 Inflate = "d25df0c9-e2be-5dd7-82c8-3ad0b3e990b9"
 LibGit2 = "76f85450-5226-5b5a-8eaa-529ad045b433"
 Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
@@ -14,3 +16,6 @@ PyPlot = "d330b81b-6aea-500a-939a-2ce795aea3ee"
 Shapefile = "8e980c4a-a4fe-5da2-b3a7-4b4b0353a2f4"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 Tar = "a4e569a6-e804-4fa4-b0f3-eef7a1d5b13e"
+
+[compat]
+Dates = "1.11.0"
