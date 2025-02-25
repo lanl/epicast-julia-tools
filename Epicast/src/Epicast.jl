@@ -185,7 +185,7 @@ function case_count!(out::AbstractVector, x::RunData, var::AbstractString,
         # number of new cases relative to total size of that demographic
         out .= new_cases(view(rundata(x, var), idx, :))
         out ./= sum(view(demographics(x, norm), idx))
-        out .*= 1e5
+        #out .*= 1e5
     else
         out .= total_cases(view(rundata(x, var), idx, :))
     end

@@ -59,13 +59,13 @@ function case_count!(out::AbstractVector, x::Epicast.RunData,
         # number of new cases relative to total size of that demographic
         out .= Epicast.new_cases(in)
         out ./= sum(view(Epicast.demographics(x, norm[2]), idx))
-        out .*= 1e5
+        #out .*= 1e5
 
     elseif length(norm) == 2 && norm[1] == "total" && Epicast.has_demographic(x, norm[2])
         # number of total cases relative to total size of that demographic
         out .= Epicast.total_cases(in)
         out ./= sum(view(Epicast.demographics(x, norm[2]), idx))
-        out .*= 1e5
+        #out .*= 1e5
 
     elseif endswith(norm, r"age_\d")
         # number of new [hospitialized, icu, ventiated, dead] for given age
@@ -75,7 +75,7 @@ function case_count!(out::AbstractVector, x::Epicast.RunData,
 
         out .= Epicast.new_cases(in)
         out ./= sum(view(Epicast.demographics(x, age), idx))
-        out .*= 1e5
+        #out .*= 1e5
 
     elseif norm == "new_cases_prop"
         # % of infections attributable to given context
@@ -86,13 +86,13 @@ function case_count!(out::AbstractVector, x::Epicast.RunData,
         # change in state as a % of total agents w/in geography
         out .= Epicast.new_cases(in)
         out ./= sum(view(Epicast.demographics(x, "total"), idx, :))
-        out .*= 1e5
+        #out .*= 1e5
 
     elseif norm == "prop"
         # % of total agents w/in geography that are in given state
         out .= Epicast.total_cases(in)
         out ./= sum(view(Epicast.demographics(x, "total"), idx))
-        out .*= 1e5
+        #out .*= 1e5
 
     elseif norm == "change"
         # change in state as a % of total agents w/in geography
@@ -462,7 +462,12 @@ end
 # ============================================================================ #
 function add_state_timeseries!(ax, data::GeoplotData, var::AbstractString,
     frame::Integer=1, vertical::Bool=false, start_date::AbstractString="",
-    top::Integer=typemax(Int), AT::Type{<:AbstractGeo}=State)
+    top::Integer=typemax(Int), AT::Type{<:AbstractGeo}=State;
+    geos::AbstractVector=[],
+    title::AbstractString=" ",
+    legend_kws=Dict(:frameon => true,
+                    :bbox_to_anchor => (1.02, 1.0),
+                    :loc => nothing))
 
     # if data are already normalized (cases-per-100k) then simply averaging
     # will maintain the proper units
@@ -476,7 +481,9 @@ function add_state_timeseries!(ax, data::GeoplotData, var::AbstractString,
     )
 
     states_tmp = sort!(collect(states))
-    if top < length(states_tmp)
+    if length(geos) > 0
+        states_use = geos
+    elseif top < length(states_tmp)
         mx = [maximum(state_data[k, var]) for k in states_tmp]
         states_use = states_tmp[sortperm(mx, rev=true)[1:top]]
     else
@@ -511,15 +518,22 @@ function add_state_timeseries!(ax, data::GeoplotData, var::AbstractString,
 
     ncol = length(states_use) > 25 ? 2 : 1
 
-    if vertical
-        ax.legend(frameon=true, loc="lower left", bbox_to_anchor=(1.02, 0.0), ncol=ncol)
-    else
-        ax.legend(frameon=true, loc="upper left", bbox_to_anchor=(1.02, 1.0), ncol=ncol)
+    if haskey(legend_kws, :loc) && legend_kws[:loc] == nothing
+        if vertical
+            legend_kws[:loc] = "lower left"
+        else
+            legend_kws[:loc] = "upper left"
+        end
     end
+    ax.legend(; ncol=ncol, legend_kws...)
 
-    ax.set_title(" ", fontsize=18)
+
+    ax.set_title(title, fontsize=18)
     mx2 *= 1.05
-    time_idc = ax.plot([frame-1,frame-1],[0,mx2], "--", color="darkgray", linewidth=2)[1]
+    time_idc = nothing
+    if frame > 0
+        time_idc = ax.plot([frame-1,frame-1],[0,mx2], "--", color="darkgray", linewidth=2)[1]
+    end
 
     return mx2, time_idc
 end
