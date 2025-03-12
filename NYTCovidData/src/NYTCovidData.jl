@@ -1,8 +1,8 @@
 module NYTCovidData
 
-using CSV, Dates, Random
+using CSV, Dates, Random, Statistics
 
-using UrbanPop
+using UrbanPop, EpicastTables
 
 # ============================================================================ #
 # up_dir = "/Users/palexander/Documents/emerge+radium/input-data/agent_db"
@@ -265,6 +265,59 @@ function read_covid_data(ifile::AbstractString)
         return data, county_fips, date
     end
 
+end
+# ============================================================================ #
+function to_fips_table(data::AbstractMatrix, counties::AbstractVector{<:Integer},
+    agg::Bool=false, smooth::Bool=false)
+
+    tmp = permutedims(getfield.(data, :cases), (2,1))
+
+    cnty = FIPSTable(County,
+        Array{Float64,3}(reshape(tmp, size(tmp,1), size(tmp,2), 1)),
+        counties,
+        ["total"]
+    )
+
+    if agg
+        out = aggregate_state(cnty, false)
+    else
+        out = cnty
+    end
+
+    if smooth
+        smooth_timeseries!(view(out.data, :, :, 1); dims=1)
+    end
+
+    out.data[2:end,:,1] .= diff(view(out.data, :, :, 1), dims=1)
+
+    replace!(x -> x < 0.0 ? 0.0 : x, out.data)
+
+    return out
+end
+# ============================================================================ #
+function smooth_timeseries!(data::AbstractVector{T}) where T<:Real
+    out = zeros(T, length(data))
+    smooth_timeseries!(out, data)
+    data .= out
+    return data
+end
+# ---------------------------------------------------------------------------- #
+function smooth_timeseries!(out::AbstractVector{<:AbstractFloat}, data::AbstractVector{<:Real})
+    out[1] = data[1]
+    for k = 2:length(data)
+        ks = max(k-7, 1)
+        out[k] = mean(data[ks:k])
+    end
+    return out
+end
+# ---------------------------------------------------------------------------- #
+function smooth_timeseries!(data::AbstractMatrix{T}; dims::Integer=1) where T<:AbstractFloat
+    tmp = zeros(T, size(data, dims))
+    for slice in eachslice(data, dims=(3-dims))
+        smooth_timeseries!(tmp, slice)
+        slice .= tmp
+    end
+    return data
 end
 # ============================================================================ #
 end

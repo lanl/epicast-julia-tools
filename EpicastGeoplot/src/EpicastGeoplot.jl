@@ -156,6 +156,7 @@ shape_file(::Type{State}) = joinpath(DATADIR, "cb_2019_us_state_500k.shp")
 to_state(::Type{BlockGroup}) = EpicastTables.BG2STATE
 to_state(::Type{Tract}) = EpicastTables.TRACT2STATE
 to_state(::Type{County}) = EpicastTables.COUNTY2STATE
+to_state(::Type{State}) = 1
 to_geo(::Type{County}) = EpicastTables.TRACT2COUNTY
 to_geo(::Type{Tract}) = 1
 to_geo(::Type{BlockGroup}) = 1
@@ -256,9 +257,9 @@ aggregate_to(::Type{BlockGroup}, data::FIPSTable) = data
 function geoplot_data(data::FIPSTable{G,Float64,N}) where {G<:AbstractGeo,N}
     states = Set(all_states(data))
     shps, fips = load_polygons(shape_file(G), states, to_state(G))
-    tmp = aggregate_to(G, data)
-    filter_shapes!(shps, fips, tmp)
-    return GeoplotData{G,N}(shps, fips, tmp)
+    # tmp = aggregate_to(G, data)
+    filter_shapes!(shps, fips, data)
+    return GeoplotData{G,N}(shps, fips, data)
 end
 # ---------------------------------------------------------------------------- #
 function geoplot_data(data::FIPSTable{G,L,N}) where {G<:AbstractGeo,L<:Integer,N}
@@ -267,16 +268,31 @@ function geoplot_data(data::FIPSTable{G,L,N}) where {G<:AbstractGeo,L<:Integer,N
     return geoplot_data(tmp)
 end
 # ============================================================================ #
-function draw_shapes!(::Type{Polygon}, ax, data::GeoplotData, var::AbstractString,
-    cm::ColorMap, norm::AbstractNorm, frame::Integer=1)
-
-    polys = Vector{Matrix{Float64}}(undef, n_shape(data))
-    for k in 1:n_shape(data)
-        ks, ke = largest_part(data.shps[k])
-        pts = view(data.shps[k].points, ks:ke)
+function generate_polygons(shps::Vector{Shapefile.Polygon})
+    polys = Vector{Matrix{Float64}}(undef, length(shps))
+    for k in 1:length(shps)
+        ks, ke = largest_part(shps[k])
+        pts = view(shps[k].points, ks:ke)
         polys[k] = [long2merc.(getfield.(pts, :x)) lat2merc.(getfield.(pts, :y))]
     end
 
+    return polys
+end
+# ============================================================================ #
+function draw_polygons!(ax, shps::Vector{Shapefile.Polygon}; facecolor=nothing,
+    edgecolor=nothing)
+
+    polys = generate_polygons(shps)
+    hp = matplotlib.collections.PolyCollection(polys, facecolor=facecolor,
+        edgecolor=edgecolor)
+    ax.add_collection(hp)
+    return hp
+end
+# ============================================================================ #
+function draw_shapes!(::Type{Polygon}, ax, data::GeoplotData, var::AbstractString,
+    cm::ColorMap, norm::AbstractNorm, frame::Integer=1)
+
+    polys = generate_polygons(data.shps)
     c = map(x -> data.data[frame, x, var], data.fips)
     hp = matplotlib.collections.PolyCollection(polys, facecolor=cm(scale(norm, c)))
     ax.add_collection(hp)
@@ -412,6 +428,13 @@ function ticks_to_dates(ax, nt::Integer, start_date::AbstractString,
     return xt, xtl
 end
 # ============================================================================ #
+function get_colors(n::Integer)
+    return map(col -> (red(col), green(col), blue(col)), 
+        distinguishable_colors(n, [RGB(1,1,1), RGB(0,0,0)],
+            dropseed=true)
+    )
+end
+# ============================================================================ #
 function add_state_timeseries!(ax, data::GeoplotData, var::AbstractString,
     frame::Integer=1, vertical::Bool=false, start_date::AbstractString="",
     top::Integer=typemax(Int), AT::Type{<:AbstractGeo}=State,
@@ -488,13 +511,13 @@ function make_figure(data::GeoplotData{T}; ofile::AbstractString="",
     norm::Type{<:AbstractNorm}=ExtremaNorm,
     shape::Type{<:AbstractShape}=default_shape(T),
     outline::AbstractGeo=default_outline(T),
-    agg_level::Type{<:AbstractGeo}=State) where T<:AbstractGeo
+    agg_level::Type{<:AbstractGeo}=State, fps::Integer=3) where T<:AbstractGeo
 
     var = first(keys(data.data.var_index))
 
     return make_figure(data, var, ofile=ofile, maxq=maxq, frame=frame,
         vertical=vertical, norm=norm, shape=shape, outline=outline,
-        agg_level=agg_level)
+        agg_level=agg_level, fps=fps)
 end
 # ---------------------------------------------------------------------------- #
 function make_figure(data::GeoplotData{T}, var::AbstractString;
@@ -503,7 +526,7 @@ function make_figure(data::GeoplotData{T}, var::AbstractString;
     norm::Type{<:AbstractNorm}=ExtremaNorm,
     shape::Type{<:AbstractShape}=default_shape(T),
     outline::Type{<:AbstractGeo}=default_outline(T),
-    agg_level::Type{<:AbstractGeo}=State) where T<:AbstractGeo
+    agg_level::Type{<:AbstractGeo}=State, fps::Integer=3) where T<:AbstractGeo
 
     nt = n_timepoint(data)
 
@@ -579,6 +602,8 @@ function make_figure(data::GeoplotData{T}, var::AbstractString;
     end
 
     h.tight_layout()
+
+    update_figure(IDX)
     
     if vertical
         h.subplots_adjust(hspace=0)
@@ -588,8 +613,8 @@ function make_figure(data::GeoplotData{T}, var::AbstractString;
 
     if !isempty(ofile)
         if endswith(ofile, ".mp4")
-            anim = animation.FuncAnimation(h, update_figure, frames=2:nt)
-            anim.save(ofile, fps=3)
+            anim = animation.FuncAnimation(h, update_figure, frames=IDX:nt)
+            anim.save(ofile, fps=fps)
         else
             h.savefig(ofile, dpi=200)
         end
@@ -601,9 +626,11 @@ function make_figure(data::GeoplotData{T}, var::AbstractString;
     return h, ax
 end
 # ============================================================================ #
-function load_polygons(ifile::AbstractString, geo::Set{<:Integer}, level::Integer=1)
+function load_polygons(ifile::AbstractString, geo::Set{<:Integer}, level::Integer=1;
+    field::Symbol=:GEOID)
+
     tbl = Shapefile.Table(ifile)
-    fips = parse.(Int, tbl.GEOID)
+    fips = parse.(Int, getproperty(tbl, field))
     idx = findall(x->in(div(x, level), geo), fips)
     out = filter!(!ismissing, Shapefile.shapes(tbl)[idx])
     return convert(Vector{Shapefile.Polygon}, out), fips[idx]
@@ -618,7 +645,7 @@ function state_outlines!(ax, shpfile::AbstractString, states::Set{<:Integer}, co
 end
 # ============================================================================ #
 function add_state_outline!(ax, shp::Shapefile.Polygon; color=nothing,
-    edgecolor=nothing, label=nothing)
+    edgecolor=nothing, label=nothing, linewidth=STATE_OUTLINE_WIDTH)
 
     h = Vector{PyPlot.PyCall.PyObject}(undef, length(shp.parts))
     for k in 1:length(shp.parts)
@@ -631,48 +658,48 @@ function add_state_outline!(ax, shp::Shapefile.Polygon; color=nothing,
             edgecolor=edgecolor,
             label=label,
             picker=label!=nothing,
-            linewidth=STATE_OUTLINE_WIDTH)[1]
+            linewidth=linewidth)[1]
     end
     return nothing
 end
 # ============================================================================ #
-function smooth_data!(d::GeoplotData)
-    for slice in eachslice(d.data.data, dims=3)
-        for v in eachcol(slice)
-            for k = 2:length(v)
-                ks = max(k-7, 1)
-                v[k] = mean(v[ks:k])
-            end
-        end
-    end
+function smooth_data!(d::GeoplotData, var::AbstractString, n::Integer=7, f::Function=mean)
+    EpicastTables.smooth!(d.data, var, n, f)
 end
 # ============================================================================ #
 function epidemic_overview(data::GeoplotData, var::AbstractString,
     frames::AbstractVector{<:Integer}, ax::Vector{PyCall.PyObject},
-    start_date::AbstractString; labs = ["A.", "B."], laby::Real=0.99,
+    start_date::AbstractString; labs=["A.", "B."], laby::Real=0.99,
     lab_loc::AbstractString="left", timeseries_geo::Type{<:AbstractGeo}=State,
     geo_ids::AbstractVector{<:Integer}=Int[], n_geo::Integer=15,
-    vpad::Real=0.02)
+    vpad::Real=0.02, clim::AbstractVector{<:Real}=[NaN,NaN],
+    ylim::AbstractVector{<:Real}=[NaN,NaN])
 
     h = ax[1].figure
 
-    add_frame!(h, ax[1], ax[end-1], data, var, frames[1])
+    add_frame!(h, ax[1], ax[end-1], data, var, frames[1], clim)
 
     for k in 2:length(frames)
-        add_frame!(h, ax[k], nothing, data, var, frames[k])
+        add_frame!(h, ax[k], nothing, data, var, frames[k], clim)
     end
 
     mx2, time_idc, geo_use = add_state_timeseries!(ax[end], data, var,
         frames[1], false, start_date, n_geo, timeseries_geo, geo_ids)
 
-    ax[end].text(frames[1]-1,time_idc.get_ydata()[2], string(frames[1]-1),
+    yl = copy(ylim)
+    k = findall(isnan, yl)
+    yl[k] .= ax[end].get_ylim()[k]
+    ax[end].set_ylim(yl)
+    yd = [0.0, yl[2] * 0.95]
+    time_idc.set_ydata(yd)
+
+    ax[end].text(frames[1]-1, yd[2], string(frames[1]-1),
         fontsize=12, va="bottom", ha="center")
 
     for t in frames[2:end]
-        ax[end].plot([t-1, t-1], time_idc.get_ydata(), "--", color="darkgray",
-            linewidth=2)
-        ax[end].text(t-1,time_idc.get_ydata()[2], string(t-1), fontsize=12,
-            va="bottom", ha="center")
+        ax[end].plot([t-1, t-1], yd, "--", color="darkgray", linewidth=2)
+        ax[end].text(t-1, yd[2], string(t-1), fontsize=12, va="bottom",
+            ha="center")
     end
     
     position_epi_frames(ax[1:end-1], ax[end], vpad)
@@ -687,9 +714,9 @@ function epidemic_overview(data::GeoplotData, var::AbstractString,
 end
 # ============================================================================ #
 function add_frame!(h, ax, cbax, data::GeoplotData, var::AbstractString,
-    frame::Integer)
+    frame::Integer, clim::AbstractVector{<:Real})
     
-    norm, cm, hp = add_map!(ax, data, var, frame)
+    norm, cm, hp = add_map!(ax, data, var, frame, mn=clim[1], mx=clim[2])
 
     # ax.set_facecolor("blue")
 

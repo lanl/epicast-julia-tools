@@ -1,5 +1,7 @@
 module EpicastTables
 
+import Base
+
 export FIPSTable, aggregate_state, aggregate_county, aggregate_tract,
     all_states, all_counties, all_tracts, filter_vars
 
@@ -77,6 +79,12 @@ Base.getindex(tbl::FIPSTable{G,T,3}, fips::Integer) where {T,G} = view(tbl.data,
 Base.getindex(tbl::FIPSTable{G,T,3}, fips::Integer, var::AbstractString) where {T,G} = view(tbl.data, :, tbl.fips_index[fips], tbl.var_index[var])
 Base.getindex(tbl::FIPSTable{G,T,3}, var::AbstractString) where {T,G} = view(tbl.data, :, :, tbl.var_index[var])
 Base.getindex(tbl::FIPSTable{G,T,3}, k::Integer, fips::Integer, var::AbstractString) where {T,G} = tbl.data[k, tbl.fips_index[fips], tbl.var_index[var]]
+# ============================================================================ #
+Base.:(==)(a::FIPSTable, b::FIPSTable) = false
+function Base.:(==)(a::FIPSTable{G,T,N}, b::FIPSTable{G,T,N}) where {G<:AbstractGeo,T<:Number,N}
+    return a.data == b.data && a.fips_index == b.fips_index &&
+        a.var_index == b.var_index
+end
 # ============================================================================ #
 geo_conversion(::Type{T}, ::Type{T}) where T = 1
 geo_conversion(::Type{County}, ::Type{State}) = COUNTY2STATE
@@ -166,5 +174,19 @@ end
 all_states(tbl::FIPSTable) = all_geo(State, tbl)
 all_counties(tbl::FIPSTable) = all_geo(County, tbl)
 all_tracts(tbl::FIPSTable) = all_geo(Tract, tbl)
+# ============================================================================ #
+function smooth!(tbl::FIPSTable{G,T,3}, var::AbstractString, n::Integer=7,
+    f::Function=mean) where {G,T<:AbstractFloat}
+
+    tmp = zeros(T, size(tbl.data, 1))
+    for col in eachcol(tbl[var])
+        tmp .= col
+        for k in 2:length(col)
+            ks = max(1, k-n)
+            col[k] = f(col[ks:k])
+        end
+    end
+    return tbl
+end
 # ============================================================================ #
 end # module EpicastTables

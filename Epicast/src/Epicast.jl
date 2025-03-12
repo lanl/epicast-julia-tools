@@ -4,6 +4,8 @@ using DelimitedFiles, PyPlot, Colors, Statistics
 
 using EpicastTables
 
+import Base
+
 # ============================================================================ #
 function epi_plot(idir::AbstractString, run::Integer=2)
 
@@ -300,8 +302,8 @@ agent_id(a::AgentTransition) = a.agent_id & ~(UInt64(0b0111111) << 58)
 tract_fips(a::AgentTransition) = a.location_id >> 8
 tract_community(a::AgentTransition) = a.location_id & 0xff
 
-# (tract, community) in which transition to infected occured
-infection_location(a::AgentTransition) = tract_fips(a), tract_community(a)
+# (tract, community) in which transition occured
+transition_location(a::AgentTransition) = tract_fips(a), tract_community(a)
 # ============================================================================ #
 function read_agent_transitions(io::IO)
     pos = position(io)
@@ -351,6 +353,11 @@ struct EventData <: AbstractRunData
     fips::Vector{UInt64}
     n_pt::UInt64
     run::String
+end
+# ---------------------------------------------------------------------------- #
+function Base.:(==)(a::EventData, b::EventData)
+    return a.demog == b.demog && a.events == b.events && a.fips == b.fips &&
+        a.n_pt == b.n_pt
 end
 # ============================================================================ #
 function read_eventfile(::Type{T}, ifile::AbstractString) where T<:AbstractRunData   
@@ -573,7 +580,8 @@ end
 # ============================================================================ #
 function plot_run(data::RunData, name::AbstractString; freduce=total_cases,
     normalize::Bool=false, dropname::Bool=false, ylab::String="",
-    title::String="", h=nothing, ax=nothing)
+    title::String="", h=nothing, ax=nothing, agg_level::Type{<:AbstractGeo}=State,
+    smooth::Bool=false)
 
     cols = filter_vars(x -> startswith(x, name), data.data)
     if h == nothing || ax == nothing
@@ -589,16 +597,18 @@ function plot_run(data::RunData, name::AbstractString; freduce=total_cases,
         distinguishable_colors(length(cols), [RGB(1,1,1), RGB(0,0,0)],
             dropseed=true)
     )
-    
+    tmp = EpicastTables.aggregate(agg_level, data.data, false)
     for (k, col) in enumerate(cols)
-        dat = Float64.(rundata(data, col))
-        if normalize && has_demographic(data, col)
-            tmp2 = demographics(data, col)
-            dat ./= reshape(tmp2, 1, length(tmp2))
-            replace!(x -> isnan(x) || isinf(x) ? 0.0 : x, dat)
+        if smooth
+            EpicastTables.smooth!(tmp, col, 7, mean)
         end
-        tmp = freduce(dat)
-        ax.plot(t, tmp, label=replace(col, rm), color=colors[k])
+        cases = freduce(tmp[col])
+        if normalize && has_demographic(data, name)
+            pop = EpicastTables.aggregate(agg_level, data.demog, false)[name]
+            cases ./= (pop ./ 1e5)
+            replace!(x -> isnan(x) || isinf(x) ? 0.0 : x, cases)
+        end
+        ax.plot(t, cases, label=replace(col, rm), color=colors[k])
     end
 
     ax.spines["top"].set_visible(false)
