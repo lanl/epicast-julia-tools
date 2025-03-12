@@ -460,14 +460,14 @@ function ticks_to_dates(ax, nt::Integer, start_date::AbstractString,
     return xt, xtl
 end
 # ============================================================================ #
+DEFAULT_LEGEND = Dict(:frameon => true,
+                    :bbox_to_anchor => (1.02, 1.0),
+                    :loc => nothing)
 function add_state_timeseries!(ax, data::GeoplotData, var::AbstractString,
     frame::Integer=1, vertical::Bool=false, start_date::AbstractString="",
     top::Integer=typemax(Int), AT::Type{<:AbstractGeo}=State;
-    geos::AbstractVector=[],
-    title::AbstractString=" ",
-    legend_kws=Dict(:frameon => true,
-                    :bbox_to_anchor => (1.02, 1.0),
-                    :loc => nothing))
+    geos::AbstractVector=[], title::AbstractString=" ",
+    legend_kws=DEFAULT_LEGEND, ymax::Real=NaN, gap::Real=0)
 
     # if data are already normalized (cases-per-100k) then simply averaging
     # will maintain the proper units
@@ -500,8 +500,12 @@ function add_state_timeseries!(ax, data::GeoplotData, var::AbstractString,
         mx2 = max(mx2, maximum(v))
         j += 1
     end
+    if !isnan(ymax)
+        mx2 = max(ymax, mx2)
+    end
 
     ax.set_xlim(-1, nt)
+    ax.set_ylim(ymax=mx2)
 
     ax.spines["right"].set_visible(false)
     ax.spines["top"].set_visible(false)
@@ -532,7 +536,9 @@ function add_state_timeseries!(ax, data::GeoplotData, var::AbstractString,
     mx2 *= 1.05
     time_idc = nothing
     if frame > 0
-        time_idc = ax.plot([frame-1,frame-1],[0,mx2], "--", color="darkgray", linewidth=2)[1]
+        time_idc = ax.plot([frame-1,frame-1],[0,mx2-gap],
+                           "--", color="darkgray",
+                           linewidth=2)[1]
     end
 
     return mx2, time_idc
@@ -713,18 +719,25 @@ function epidemic_overview(data::GeoplotData, var::AbstractString,
     frames::AbstractVector{<:Integer}, ax::Vector{PyCall.PyObject},
     start_date::AbstractString; labs = ["A.", "B."], laby::Real=0.99,
     lab_loc::AbstractString="left", timeseries_geo::Type{<:AbstractGeo}=State,
-    n_geo::Integer=15, vpad::Real=0.05)
+    n_geo::Integer=15, vpad::Real=0.05, ymax::Real=Nan,
+    cmap::AbstractString="viridis", geos::AbstractVector=[],
+    legend_kws=DEFAULT_LEGEND, gap::Real=0,
+    label_fontsize=30, title=" ")
 
     h = ax[1].figure
 
-    add_frame!(h, ax[1], ax[end-1], data, var, frames[1])
+    add_frame!(h, ax[1], ax[end-1], data, var, frames[1];
+               cmap=cmap)
 
     for k in 2:length(frames)
-        add_frame!(h, ax[k], nothing, data, var, frames[k])
+        add_frame!(h, ax[k], nothing, data, var, frames[k];
+                   cmap=cmap)
     end
 
     mx2, time_idc = add_state_timeseries!(ax[end], data, var,
-        frames[1], false, start_date, n_geo, timeseries_geo)
+        frames[1], false, start_date, n_geo, timeseries_geo;
+        geos=geos, legend_kws=legend_kws, ymax=ymax,
+        gap=gap, title=title)
 
     ax[end].text(frames[1]-1,time_idc.get_ydata()[2], string(frames[1]-1),
         fontsize=12, va="bottom", ha="center")
@@ -741,18 +754,20 @@ function epidemic_overview(data::GeoplotData, var::AbstractString,
     position_epi_frames(ax[1:end-1], bbox, 0.0, vpad)
 
     pos = axes_perimiter(ax[1]).bounds
-    h.text(pos[1],laby,labs[1], fontsize=30, va="top", ha=lab_loc)
+    h.text(pos[1],laby,labs[1], fontsize=label_fontsize,
+           va="top", ha=lab_loc)
 
     pos = axes_perimiter(ax[end]).bounds
-    h.text(pos[1],laby,labs[2], fontsize=30, va="top", ha=lab_loc)
+    h.text(pos[1],laby,labs[2], fontsize=label_fontsize,
+           va="top", ha=lab_loc)
 
     return h, ax
 end
 # ============================================================================ #
 function add_frame!(h, ax, cbax, data::GeoplotData, var::AbstractString,
-    frame::Integer)
+    frame::Integer; cmap::AbstractString="viridis")
 
-    norm, cm, hp = add_map!(ax, data, var, frame)
+    norm, cm, hp = add_map!(ax, data, var, frame; cmap=cmap)
 
     if cbax != nothing
         cb = h.colorbar(
