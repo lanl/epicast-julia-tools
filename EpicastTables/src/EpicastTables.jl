@@ -127,9 +127,14 @@ function aggregate!(out::Array{T,1}, k::Integer, tbl::FIPSTable{G,L,1},
     return out
 end
 # ---------------------------------------------------------------------------- #
+# aggregate needs to always return a float64 table
+function aggregate(::Type{G}, tbl::FIPSTable{G,T,N}, ::Bool) where {G<:AbstractGeo,T,N}    
+    return FIPSTable{G,Float64,N}(tbl.fips_index, tbl.var_index,
+        Array{Float64,N}(tbl.data))
+end
+# ---------------------------------------------------------------------------- #
 function aggregate(::Type{Go}, tbl::FIPSTable{Gi,T,N}, do_avg::Bool) where {Go,Gi,T,N}
     conv = geo_conversion(Gi, Go)
-    conv == 1 && return tbl
     
     fips = all_fips(tbl)
     fips_conv = div.(fips, conv)
