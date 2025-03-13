@@ -106,7 +106,7 @@ function parse_logfile(idir::AbstractString, run::Integer=2)
             n_symp_hh[idx,:] = t2[idx2,7:end]
         end
     end
-    
+
     return n_symptomatic, n_symp_age, n_symp_hh
 end
 # ============================================================================ #
@@ -120,9 +120,9 @@ function parse_attackfiles(idir::AbstractString, run::Integer=2)
     pat = Regex("Attack" * string(run) * "\\.\\d{3}\$")
     files = find_files(idir, pat)
     sort!(files, lt=attack_cmp_timepoint)
-    
+
     data = map(parse_attackfile, files)
-    
+
     n_tract = Int(maximum(vcat(getindex.(data, :, 1)...))) + 1
 
     pop = zeros(n_tract)
@@ -174,13 +174,20 @@ column_names(x::RunData) = collect(keys(x.data.var_index))
 demographic_names(x::RunData) = collect(keys(x.demog.var_index))
 # ============================================================================ #
 function case_count!(out::AbstractVector, x::RunData, var::AbstractString,
-    idx::AbstractVector{<:Integer})
+    idx::AbstractVector{<:Integer}, norm::AbstractString="")
 
-    if has_demographic(x, var)
+    if norm == ""
+        if has_demographic(x, var)
+            norm = var
+        end
+    end
+
+
+    if has_demographic(x, norm)
         # number of new cases relative to total size of that demographic
         out .= new_cases(view(rundata(x, var), idx, :))
-        out ./= sum(view(demographics(x, var), idx))
-        out .*= 1e5
+        out ./= sum(view(demographics(x, norm), idx))
+        #out .*= 1e5
     else
         out .= total_cases(view(rundata(x, var), idx, :))
     end
@@ -188,7 +195,7 @@ function case_count!(out::AbstractVector, x::RunData, var::AbstractString,
 end
 # ============================================================================ #
 function group_by(x::RunData, name::AbstractString, conv::Integer,
-    fcases!::Function=case_count!)
+    fcases!::Function=case_count!, norms::Dict{String,String}=Dict{String,String}())
 
     if has_data(x, name)
         cols = [name]
@@ -196,29 +203,30 @@ function group_by(x::RunData, name::AbstractString, conv::Integer,
         cols = filter_vars(x -> startswith(x, name), x.data)
     end
 
-    dat, grp = group_by(x, cols, conv, fcases!)
+    dat, grp = group_by(x, cols, conv, fcases!, norms)
 
     return dropdmins(dat, dims=3), grp
 end
 # ============================================================================ #
-function group_by(x::RunData, conv::Integer, fcases!::Function=case_count!)
+function group_by(x::RunData, conv::Integer, fcases!::Function=case_count!,
+    norms::Dict{String,String}=Dict{String,String}())
 
     cols = sort!(collect(keys(x.data.index)))
-    return group_by(x, cols, conv, fcases!)
+    return group_by(x, cols, conv, fcases!, norms)
 end
 # ============================================================================ #
 function group_by(x::RunData, cols::Vector{<:AbstractString}, conv::Integer,
-    fcases!::Function=case_count!)
+    fcases!::Function=case_count!, norms::Dict{String,String}=Dict{String,String}())
 
     fips_conv = div.(x.fips, conv)
     unique_grps = sort!(unique(fips_conv))
 
-    out = Array{Float64,3}(undef, n_timepoint(x), length(unique_grps), length(cols))    
+    out = Array{Float64,3}(undef, n_timepoint(x), length(unique_grps), length(cols))
 
     for k in eachindex(unique_grps)
         idx = findall(isequal(unique_grps[k]), fips_conv)
         for j in eachindex(cols)
-            fcases!(view(out,:,k,j), x, cols[j], idx)
+          fcases!(view(out,:,k,j), x, cols[j], idx, get(norms, cols[j], ""))
         end
     end
 
@@ -255,7 +263,7 @@ function read_runfile_header(io::IO, ::Type{T}=UInt32) where T <: Integer
         FIPSTable{Tract,T,2}(run_index(fips), run_index(demo_names), demo)
 end
 # ============================================================================ #
-function read_runfile(ifile::AbstractString, ::Type{T}=UInt32) where T <: Integer   
+function read_runfile(ifile::AbstractString, ::Type{T}=UInt32) where T <: Integer
     m = match(r".*run_(\d+)\.bin$", ifile)
     m == nothing && error("failed to parse run number, is this a transitions file?")
     run = m[1]
@@ -264,12 +272,12 @@ function read_runfile(ifile::AbstractString, ::Type{T}=UInt32) where T <: Intege
         nrow, ncol, n_pt, col_names, fips, demo = read_runfile_header(io, T)
 
         pos = position(io)
-        seekend(io)    
+        seekend(io)
         nbytes = position(io) - pos
 
         @assert((nbytes % (nrow * ncol * sizeof(UInt32))) == 0,
             "invalid data block size!")
-        
+
         seek(io, pos)
 
         data = Array{T,3}(undef, nrow, ncol, n_pt)
@@ -316,10 +324,10 @@ function read_agent_transitions(io::IO)
     end
 
     n_packet = div(nbyte, sizeof(AgentTransition))
-    
+
     data = Vector{AgentTransition}(undef, n_packet)
     read!(io, data)
-    
+
     return data
 end
 # ============================================================================ #
@@ -360,7 +368,7 @@ function Base.:(==)(a::EventData, b::EventData)
         a.n_pt == b.n_pt
 end
 # ============================================================================ #
-function read_eventfile(::Type{T}, ifile::AbstractString) where T<:AbstractRunData   
+function read_eventfile(::Type{T}, ifile::AbstractString) where T<:AbstractRunData
     m = match(r".*run_(\d+)\.events\.bin$", ifile)
     m == nothing && error("failed to parse run number, is this a counts file?")
     run = m[1]
@@ -408,7 +416,7 @@ function plot_all_multi(data::RunData, odir::AbstractString; ext::AbstractString
     PyPlot.close(h)
 
     if has_data(data, "age_0")
-    
+
         h, ax = subplots(1, 4)
         h.set_size_inches((16, 5))
 
@@ -432,7 +440,7 @@ function plot_all_multi(data::RunData, odir::AbstractString; ext::AbstractString
     end
 
     if has_data(data, "hospitalized_age0")
-    
+
         h, ax = subplots(1,4)
         h.set_size_inches((16, 5))
 
@@ -444,7 +452,7 @@ function plot_all_multi(data::RunData, odir::AbstractString; ext::AbstractString
 
         plot_run(data, "ventilated", freduce=mean_new_cases, normalize=false, dropname=true,
             title="Ventilation", ylab="", h=h, ax=ax[3])
-        
+
         plot_run(data, "dead", freduce=mean_new_cases, normalize=false, dropname=true,
             title="Deaths", ylab="", h=h, ax=ax[4])
 
@@ -509,7 +517,7 @@ function plot_all(data::RunData, ofile::AbstractString; plot_status::Bool=false)
 
     plot_run(data, "ventilated", freduce=mean_new_cases, normalize=false, dropname=true,
         title="Ventilation", ylab="Daily incidence per tract", h=h, ax=ax[3,1])
-    
+
     plot_run(data, "dead", freduce=mean_new_cases, normalize=false, dropname=true,
         title="Deaths", ylab="Daily incidence per tract", h=h, ax=ax[3,2])
 
@@ -539,7 +547,7 @@ function plot_all(data::RunData, ofile::AbstractString; plot_status::Bool=false)
 end
 # ============================================================================ #
 function plot_states(data::RunData, ofile::AbstractString; title::AbstractString="")
-    
+
     # 10^9 -> FIPS tract to state conversion
     dat, lab = group_by(data, "total", EpicastTables.TRACT2STATE, case_count!)
 
@@ -547,7 +555,7 @@ function plot_states(data::RunData, ofile::AbstractString; title::AbstractString
     h, ax = subplots(1,1)
     h.set_size_inches((14,9))
 
-    colors = map(col -> (red(col), green(col), blue(col)), 
+    colors = map(col -> (red(col), green(col), blue(col)),
         distinguishable_colors(length(lab), [RGB(1,1,1), RGB(0,0,0)],
             dropseed=true)
     )
@@ -555,7 +563,7 @@ function plot_states(data::RunData, ofile::AbstractString; title::AbstractString
     foreach(1:length(lab)) do k
         ax.plot(dat[:,1,k] .* 1e5, color=colors[k], label=STATE_FIPS[lab[k]])
     end
-    
+
     ax.legend(frameon=false)
 
     ax.set_xlabel("Simulation day", fontsize=14)
@@ -563,7 +571,7 @@ function plot_states(data::RunData, ofile::AbstractString; title::AbstractString
 
     ax.spines["top"].set_visible(false)
     ax.spines["right"].set_visible(false)
-    
+
     # "Daily new cases per state (22 states, ~136M agents)"
     !isempty(title) && ax.set_title(title, fontsize=18)
 
@@ -578,10 +586,99 @@ function plot_states(data::RunData, ofile::AbstractString; title::AbstractString
     return nothing
 end
 # ============================================================================ #
+function plot_run(data::Vector{RunData{T}}, name::AbstractString; args...) where T<:Number
+
+    h, ax = (nothing,nothing)
+
+    for d in data
+        h, ax = plot_run(d, name; h=h, ax=ax, args...)
+    end
+
+    return h, ax
+end
+# ============================================================================ #
+function plot_runs(data, name::AbstractString; freduce=total_cases, reduce_cols=nothing,
+    normalize::Bool=false, demo::AbstractString="", dropname::Bool=false, ylab::String="",
+    title::String="", h=nothing, ax=nothing, style::Function=(h, ax) -> nothing,
+    dataset_names::AbstractVector{<:AbstractString}=nothing)
+
+    cols = map(d -> filter_columns(x -> startswith(x, name), d.data), data)
+    if h == nothing || ax == nothing
+        h, ax = subplots(1, 1)
+        h.set_size_inches((8,6))
+    end
+
+    t = 1:maximum(map(n_timepoint, data))
+
+    rm = dropname ? name * "_" => "" : "_" => " "
+
+    n_colors = sum(map(length, cols))
+    if reduce_cols != nothing
+        n_colors = sum(map(x -> 1, cols))
+    end
+    colors = map(col -> (red(col), green(col), blue(col)),
+                 distinguishable_colors(n_colors, [RGB(1,1,1), RGB(0,0,0)], dropseed=true))
+
+    plot_col(k, dataset, dat, name, col) = begin
+        d = demo
+        if 0 == cmp(demo, "")
+            d = col
+        end
+        if normalize && has_demographic(dataset, d)
+            tmp2 = sum(demographics(dataset, d))
+            dat ./= tmp2
+            #dat .*= 1e5
+
+            replace!(x -> isnan(x) || isinf(x) ? 0.0 : x, dat)
+        end
+        tmp = freduce(dat)
+        label = replace(col, rm)
+        if dataset_names != nothing
+            if length(colors) != length(data)
+                label = "$(name)_$label"
+            else
+                label = name
+            end
+        end
+        ax.plot(t, tmp, label=label, color=colors[k])
+    end
+
+    k = 1
+    for (j, dataset_cols) in enumerate(cols)
+        dataset = data[j]
+        n = dataset_names[j]
+        if reduce_cols == nothing
+            for (c, col) in enumerate(dataset_cols)
+                d = Float64.(rundata(dataset, col))
+                plot_col(k, dataset, d, n, col)
+                k += 1
+            end
+        else
+            d = reduce_col(map(col -> Float64.(rundata(dataset, col)), dataset_cols))
+            plot_col(k, dataset, d, n, name)
+            k += 1
+        end
+    end
+
+    ax.spines["top"].set_visible(false)
+    ax.spines["right"].set_visible(false)
+    ax.set_xlabel("Simulation day", fontsize=14)
+
+    !isempty(ylab) && ax.set_ylabel(ylab, fontsize=14)
+    !isempty(title) && ax.set_title(title, fontsize=18)
+
+    ax.legend(fontsize=14, frameon=false)
+    style(h, ax)
+
+    h.tight_layout()
+
+    return h, ax
+end
+# ============================================================================ #
 function plot_run(data::RunData, name::AbstractString; freduce=total_cases,
     normalize::Bool=false, dropname::Bool=false, ylab::String="",
-    title::String="", h=nothing, ax=nothing, agg_level::Type{<:AbstractGeo}=State,
-    smooth::Bool=false)
+    title::String="", h=nothing, ax=nothing, style::Function=(h, ax) -> nothing,
+    agg_level::Type{<:AbstractGeo}=State, smooth::Bool=false)
 
     cols = filter_vars(x -> startswith(x, name), data.data)
     if h == nothing || ax == nothing
@@ -593,7 +690,7 @@ function plot_run(data::RunData, name::AbstractString; freduce=total_cases,
 
     rm = dropname ? name * "_" => "" : "_" => " "
 
-    colors = map(col -> (red(col), green(col), blue(col)), 
+    colors = map(col -> (red(col), green(col), blue(col)),
         distinguishable_colors(length(cols), [RGB(1,1,1), RGB(0,0,0)],
             dropseed=true)
     )
@@ -619,19 +716,9 @@ function plot_run(data::RunData, name::AbstractString; freduce=total_cases,
     !isempty(title) && ax.set_title(title, fontsize=18)
 
     ax.legend(fontsize=14, frameon=false)
+    style(h, ax)
 
     h.tight_layout()
-
-    return h, ax
-end
-# ============================================================================ #
-function plot_run(data::Vector{RunData{T}}, name::AbstractString; args...) where T<:Number
-
-    h, ax = (nothing,nothing)
-
-    for d in data
-        h, ax = plot_run(d, name; h=h, ax=ax, args...)
-    end
 
     return h, ax
 end
@@ -669,6 +756,22 @@ function plot_infection_src(data::RunData)
     h.tight_layout()
 
     return h, ax
+end
+# ============================================================================ #
+function aggregate(data::RunData, col::AbstractString;
+    freduce=total_cases, demo::AbstractString="")
+
+    dat = Float64.(rundata(data, col))
+    if demo != "" && has_demographic(data, demo)
+        tmp2 = demographics(data, demo)
+        #dat .*= 1e5
+
+        replace!(x -> isnan(x) || isinf(x) ? 0.0 : x, dat)
+        replace!(x -> isnan(x) || isinf(x) ? 0.0 : x, tmp2)
+        return freduce(dat) / sum(tmp2)
+    else
+        return freduce(dat)
+    end
 end
 # ============================================================================ #
 find_files(dir::AbstractString, re=r".*") = return do_match(dir, re, isfile)

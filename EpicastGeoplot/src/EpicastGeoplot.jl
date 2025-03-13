@@ -23,36 +23,80 @@ const DATADIR = joinpath(@__DIR__, "..", "assets", "geo-data", "data")
 const STATE_OUTLINE_WIDTH = 0.5
 # ============================================================================ #
 function case_count!(out::AbstractVector, x::Epicast.RunData,
-    var::AbstractString, idx::AbstractVector{<:Integer})
+    var::AbstractString, idx::AbstractVector{<:Integer}, norm::AbstractString="")
 
     in = view(Epicast.rundata(x, var), :, idx)
 
-    if Epicast.has_demographic(x, var)
+    # Defaults; can be overriden by passing norm manually
+    if norm == ""
+        if Epicast.has_demographic(x, var)
+            norm = ("new", var)
+
+        elseif endswith(var, r"_age\d")
+            # number of new [hospitialized, icu, ventiated, dead] for given age
+            # group relative to that age group's total population (for each
+            # location)
+            norm = "age_" * var[end]
+
+        elseif startswith(var, "infection-src")
+            # % of infections attributable to given context
+            norm = "new_cases_prop"
+
+        elseif startswith(var, "status_")
+            # % of total agents w/in geography that are in given state
+            norm = "prop"
+
+        elseif startswith(var, "broadcaster_")
+            # % of broadcasters w/in geography that are in given state
+            norm = ("total", "media_broadcaster")
+        else
+            # default: total counts per location
+            norm = "default"
+        end
+    end
+
+    if length(norm) == 2 && norm[1] == "new" && Epicast.has_demographic(x, norm[2])
         # number of new cases relative to total size of that demographic
         out .= Epicast.new_cases(in)
-        out ./= sum(view(Epicast.demographics(x, var), idx))
-        out .*= 1e5
+        out ./= sum(view(Epicast.demographics(x, norm[2]), idx))
+        #out .*= 1e5
 
-    elseif endswith(var, r"_age\d")
+    elseif length(norm) == 2 && norm[1] == "total" && Epicast.has_demographic(x, norm[2])
+        # number of total cases relative to total size of that demographic
+        out .= Epicast.total_cases(in)
+        out ./= sum(view(Epicast.demographics(x, norm[2]), idx))
+        #out .*= 1e5
+
+    elseif endswith(norm, r"age_\d")
         # number of new [hospitialized, icu, ventiated, dead] for given age
         # group relative to that age group's total population (for each
         # location)
-        age = "age_" * var[end]
+        age = "age_" * norm[end]
 
         out .= Epicast.new_cases(in)
         out ./= sum(view(Epicast.demographics(x, age), idx))
-        out .*= 1e5
+        #out .*= 1e5
 
-    elseif startswith(var, "infection-src")
+    elseif norm == "new_cases_prop"
         # % of infections attributable to given context
         out .= Epicast.new_cases(in)
         out ./= Epicast.new_cases(view(Epicast.rundata(x, "total"), :, idx))
 
-    elseif startswith(var, "status_")
+    elseif norm == "change_prop"
+        # change in state as a % of total agents w/in geography
+        out .= Epicast.new_cases(in)
+        out ./= sum(view(Epicast.demographics(x, "total"), idx, :))
+        #out .*= 1e5
+
+    elseif norm == "prop"
         # % of total agents w/in geography that are in given state
         out .= Epicast.total_cases(in)
         out ./= sum(view(Epicast.demographics(x, "total"), idx))
-        out .*= 1e5
+        #out .*= 1e5
+
+    elseif norm == "change"
+        # change in state as a % of total agents w/in geography
+        out .= Epicast.new_cases(in)
 
     else
         # default: total counts per location
@@ -62,23 +106,24 @@ function case_count!(out::AbstractVector, x::Epicast.RunData,
     return out
 end
 # ============================================================================ #
-function data_dict(::Type{T}, data::Epicast.RunData, names::Vector{<:AbstractString}) where T<:AbstractGeo
+function data_dict(::Type{T}, data::Epicast.RunData, names::Vector{<:AbstractString},
+    norms::Dict{String,String}=Dict{String,String}()) where T<:AbstractGeo
 
     conv = to_geo(T)
 
     if conv > 1
         # dat is: time x fips x var
-        dat, grp = Epicast.group_by(data, names, conv, case_count!)
+        dat, grp = Epicast.group_by(data, names, conv, case_count!, norms)
     else
         # time x fips x var
         dat = Array{Float64,3}(undef, Epicast.n_timepoint(data),
             length(data.fips), length(names))
-        
+
         # this is pretty slow, and kinda inefficient, but it's nice to reuse
         # case_count!()
         for k in 1:size(dat, 2)
             for j in 1:size(dat, 3)
-                case_count!(view(dat, :, k, j), data, names[j], [k])
+                case_count!(view(dat, :, k, j), data, names[j], [k], get(norms, names[j], ""))
             end
         end
 
@@ -130,7 +175,7 @@ function centroid(poly::Shapefile.Polygon)
     a = 0.0
     c = [0.0, 0.0]
     ks, ke = largest_part(poly)
- 
+
     @inbounds for k in ks:(ke-1)
         p = point2vec(poly.points[k])
         n = point2vec(poly.points[k+1])
@@ -194,12 +239,14 @@ outline_shapes(::Type{County}, d::GeoplotData{County}) = shape_file(County), Set
 outline_shapes(::Type{State}, d::GeoplotData{County}) = shape_file(State), Set(all_states(d.data))
 # ============================================================================ #
 function geoplot_data(::Type{T}, data_file::AbstractString,
-    prefix::AbstractString="") where T<:AbstractGeo
+    prefix::AbstractString="", ::Type{S}=UInt32;
+    norms::Dict{String,String}=Dict{String,String}()
+    ) where {T<:AbstractGeo, S <:Integer}
 
     if endswith(data_file, ".events.bin")
         data = Epicast.read_eventfile(Epicast.RunData, data_file)
     else
-        data = Epicast.read_runfile(data_file)
+        data = Epicast.read_runfile(data_file, S)
     end
 
     if isempty(prefix)
@@ -210,20 +257,22 @@ function geoplot_data(::Type{T}, data_file::AbstractString,
         names = Epicast.filter_columns(x -> startswith(x, prefix), data.data)
     end
 
-    return geoplot_data(T, data, names)
+    return geoplot_data(T, data, names; norms=norms)
 end
 # ---------------------------------------------------------------------------- #
-function geoplot_data(::Type{T}, data_file::AbstractString, pat::Regex) where T<:AbstractGeo
+function geoplot_data(::Type{T}, data_file::AbstractString, pat::Regex,
+    ::Type{S}=UInt32; norms::Dict{String,String}=Dict{String,String}()
+    ) where{T <:AbstractGeo, S <: Integer}
 
     if endswith(data_file, ".events.bin")
         data = Epicast.read_eventfile(Epicast.RunData, data_file)
     else
-        data = Epicast.read_runfile(data_file)
+        data = Epicast.read_runfile(data_file, S)
     end
 
     names = Epicast.filter_columns(x -> match(pat, x) != nothing, data.data)
 
-    return geoplot_data(T, data, names)
+    return geoplot_data(T, data, names; norms=norms)
 end
 # ---------------------------------------------------------------------------- #
 function filter_shapes!(shps::Vector{Shapefile.Polygon}, fips::Vector{<:Integer},
@@ -237,9 +286,10 @@ function filter_shapes!(shps::Vector{Shapefile.Polygon}, fips::Vector{<:Integer}
 end
 # ---------------------------------------------------------------------------- #
 function geoplot_data(::Type{T}, all_data::Epicast.RunData,
-    names::AbstractVector{<:AbstractString}) where T<:AbstractGeo
-
-    data = data_dict(T, all_data, names)
+    names::AbstractVector{<:AbstractString}, ::Type{S}=UInt32;
+    norms::Dict{String,String}=Dict{String,String}(),
+    ) where{T <:AbstractGeo, S <: Integer}
+    data = data_dict(T, all_data, names, norms)
 
     states = Set(all_states(all_data.data))
 
@@ -301,7 +351,7 @@ end
 # ============================================================================ #
 function draw_shapes!(::Type{Point}, ax, data::GeoplotData, var::AbstractString,
     cm::ColorMap, norm::AbstractNorm, frame::Integer=1)
-    
+
     xy = centroid.(data.shps)
     c = map(x -> data.data[frame, x, var], data.fips)
     return ax.scatter(getindex.(xy, 1), getindex.(xy, 2), 4.0, c=cm(scale(norm, c)))
@@ -328,13 +378,15 @@ function map_figure(data::GeoplotData{T}, var::AbstractString, frame::Integer;
     maxq::Real=quantile_threshold(T), cmap::AbstractString="viridis",
     norm::Type{<:AbstractNorm}=ExtremaNorm, title::AbstractString="",
     cb_label::AbstractString="", shape::Type{<:AbstractShape}=default_shape(T),
-    outline::Type{<:AbstractGeo}=default_outline(T)) where T<:AbstractGeo
-    
-    h, ax = subplots(1,1)
+    outline::Type{<:AbstractGeo}=default_outline(T),
+    vmax::Real=NaN) where T<:AbstractGeo
+
+    h = gcf()
+    ax = gca()
     h.set_size_inches((10,6))
     norm, cm, hp = add_map!(ax, data, var, frame, maxq=maxq, cmap=cmap,
-        norm=norm, shape=shape, outline=outline)
-    
+        norm=norm, shape=shape, outline=outline, mx=vmax)
+
     ax.set_title(title, fontsize=18)
 
     cb = h.colorbar(
@@ -346,24 +398,7 @@ function map_figure(data::GeoplotData{T}, var::AbstractString, frame::Integer;
         cb.set_label(cb_label, fontsize=14)
     end
 
-    onpick(evt) = begin
-        if evt.mouseevent.button == 1
-            b, l = hp.contains(evt.mouseevent)
-            if b
-                n = length(l["ind"])
-                kt = nearest_shape(data, l["ind"], evt.mouseevent)
-                idx = l["ind"][kt] + 1
-                fips_code = data.fips[idx]
-                str = @sprintf("%s %d: %.03f", titlecase(geo_name(T)),
-                    fips_code, data.data[frame,fips_code,var])
-                str = !isempty(title) ? title * " | " * str : str
-                ax.set_title(str, fontsize=18)
-            end
-        end
-    end
-
-    h.canvas.mpl_connect("pick_event", onpick)
-    h.tight_layout()
+    tight_layout()
 
     return h, ax, cb
 end
@@ -373,7 +408,7 @@ function add_map!(ax::PyCall.PyObject, data::GeoplotData{T}, var::AbstractString
     cmap::AbstractString="viridis", norm::Type{<:AbstractNorm}=ExtremaNorm,
     shape::Type{<:AbstractShape}=default_shape(T),
     outline::Type{<:AbstractGeo}=default_outline(T)) where T<:AbstractGeo
-    
+
     outline_shp, outline_fips = outline_shapes(outline, data)
 
     data_mat = data_matrix(data, var)
@@ -435,10 +470,22 @@ function get_colors(n::Integer)
     )
 end
 # ============================================================================ #
-function add_state_timeseries!(ax, data::GeoplotData, var::AbstractString,
+function get_colors(n::Integer)
+    return map(col -> (red(col), green(col), blue(col)), 
+        distinguishable_colors(n, [RGB(1,1,1), RGB(0,0,0)],
+            dropseed=true)
+    )
+end
+# ============================================================================ #
+const DEFAULT_LEGEND = Dict(:frameon => true,
+                    :bbox_to_anchor => (1.02, 1.0),
+                    :loc => nothing)
+# ============================================================================ #
+function add_state_timeseries!(ax, data::GeoplotData{T}, var::AbstractString,
     frame::Integer=1, vertical::Bool=false, start_date::AbstractString="",
-    top::Integer=typemax(Int), AT::Type{<:AbstractGeo}=State,
-    geo_ids::AbstractVector{<:Integer}=Int[])
+    top::Integer=typemax(Int), AT::Type{<:AbstractGeo}=State;
+    geo_ids::AbstractVector=[], title::AbstractString=" ",
+    legend_kws=DEFAULT_LEGEND, ymax::Real=NaN, gap::Real=0) where T<:AbstractGeo
 
     # if data are already normalized (cases-per-100k) then simply averaging
     # will maintain the proper units
@@ -446,7 +493,7 @@ function add_state_timeseries!(ax, data::GeoplotData, var::AbstractString,
     states = EpicastTables.all_geo(AT, state_data)
     nstate = length(states)
 
-    colors = map(col -> (red(col), green(col), blue(col)), 
+    colors = map(col -> (red(col), green(col), blue(col)),
         distinguishable_colors(nstate, [RGB(1,1,1), RGB(0,0,0)],
             dropseed=true)
     )
@@ -475,12 +522,16 @@ function add_state_timeseries!(ax, data::GeoplotData, var::AbstractString,
         mx2 = max(mx2, maximum(v))
         j += 1
     end
+    if !isnan(ymax)
+        mx2 = max(ymax, mx2)
+    end
 
     ax.set_xlim(-1, nt)
+    ax.set_ylim(ymax=mx2)
 
     ax.spines["right"].set_visible(false)
     ax.spines["top"].set_visible(false)
-    ax.set_ylabel("New cases per 100k residents", fontsize=14)
+    ax.set_ylabel("Proportion of agents newly infected", fontsize=14)
 
     if !isempty(start_date)
         xt, xtl = ticks_to_dates(ax, nt, start_date)
@@ -493,20 +544,30 @@ function add_state_timeseries!(ax, data::GeoplotData, var::AbstractString,
 
     ncol = length(states_use) > 25 ? 2 : 1
 
-    if vertical
-        ax.legend(frameon=true, loc="lower left", bbox_to_anchor=(1.02, 0.0), ncol=ncol)
-    else
-        ax.legend(frameon=true, loc="upper left", bbox_to_anchor=(1.02, 1.0), ncol=ncol)
+    if haskey(legend_kws, :loc) && legend_kws[:loc] == nothing
+        if vertical
+            legend_kws[:loc] = "lower left"
+        else
+            legend_kws[:loc] = "upper left"
+        end
     end
+    ax.legend(; ncol=ncol, legend_kws...)
 
-    ax.set_title(" ", fontsize=18)
+
+    ax.set_title(title, fontsize=18)
     mx2 *= 1.05
-    time_idc = ax.plot([frame-1,frame-1],[0,mx2], "--", color="darkgray", linewidth=2)[1]
+    time_idc = nothing
+    if frame > 0
+        time_idc = ax.plot([frame-1,frame-1],[0,mx2-gap],
+                           "--", color="darkgray",
+                           linewidth=2)[1]
+    end
 
     return mx2, time_idc, states_use
 end
 # ============================================================================ #
 function make_figure(data::GeoplotData{T}; ofile::AbstractString="",
+    style_geo::Function=identity, style_line::Function=identity,
     maxq::Real=quantile_threshold(T), frame::Integer=1, vertical::Bool=false,
     norm::Type{<:AbstractNorm}=ExtremaNorm,
     shape::Type{<:AbstractShape}=default_shape(T),
@@ -515,18 +576,26 @@ function make_figure(data::GeoplotData{T}; ofile::AbstractString="",
 
     var = first(keys(data.data.var_index))
 
-    return make_figure(data, var, ofile=ofile, maxq=maxq, frame=frame,
-        vertical=vertical, norm=norm, shape=shape, outline=outline,
-        agg_level=agg_level, fps=fps)
+    return make_figure(data, var, ofile=ofile,
+                       style_geo=style_geo,
+                       style_line=style_line,
+                       maxq=maxq, frame=frame,
+                       vertical=vertical,
+                       norm=norm, shape=shape,
+                       outline=outline,
+                       agg_level=agg_level, fps=fps)
 end
 # ---------------------------------------------------------------------------- #
 function make_figure(data::GeoplotData{T}, var::AbstractString;
-    ofile::AbstractString="", maxq::Real=quantile_threshold(T),
-    frame::Integer=1, vertical::Bool=false,
+    ofile::AbstractString="", style_geo::Function=identity,
+    style_line::Function=identity,
+    maxq::Real=quantile_threshold(T), frame::Integer=1,
+    vertical::Bool=false,
     norm::Type{<:AbstractNorm}=ExtremaNorm,
     shape::Type{<:AbstractShape}=default_shape(T),
     outline::Type{<:AbstractGeo}=default_outline(T),
-    agg_level::Type{<:AbstractGeo}=State, fps::Integer=3) where T<:AbstractGeo
+    agg_level::Type{<:AbstractGeo}=State,
+    geo_ids::AbstractVector{<:Integer}=[], fps::Integer=3) where T<:AbstractGeo
 
     nt = n_timepoint(data)
 
@@ -540,7 +609,7 @@ function make_figure(data::GeoplotData{T}, var::AbstractString;
     elseif nstate > 40
         w_ratio .= [1.7, 1.0]
     end
-    
+
     if vertical
         h, ax = subplots(2, 1)
         h.set_size_inches((width/2,10))
@@ -553,7 +622,7 @@ function make_figure(data::GeoplotData{T}, var::AbstractString;
         norm=norm, shape=shape, outline=outline)
 
     mx2, time_idc, _ = add_state_timeseries!(ax[2], data, var, frame, vertical, "",
-        typemax(Int), agg_level)
+        typemax(Int), agg_level; geo_ids=geo_ids)
 
     county_line = nothing
 
@@ -625,9 +694,163 @@ function make_figure(data::GeoplotData{T}, var::AbstractString;
 
     return h, ax
 end
+# ---------------------------------------------------------------------------- #
+function make_map(data::GeoplotData{T}, var::AbstractString;
+    ofile::AbstractString="", maxq::Real=quantile_threshold(T),
+    frame::Integer=1, vertical::Bool=false,
+    norm::Type{<:AbstractNorm}=ExtremaNorm,
+    shape::Type{<:AbstractShape}=default_shape(T),
+    outline::Type{<:AbstractGeo}=default_outline(T),
+    agg_level::Type{<:AbstractGeo}=State) where T<:AbstractGeo
+
+    nt = n_timepoint(data)
+
+    @assert(0 < frame <= nt, "given frame $(frame) is out-of-bounds")
+
+    nstate = n_state(data)
+    width = nstate > 25 ? 15 : 14
+    w_ratio = [1.0, 1.0]
+    if 25 < nstate <= 40
+        w_ratio .= [1.3, 1.0]
+    elseif nstate > 40
+        w_ratio .= [1.7, 1.0]
+    end
+
+    h, ax = subplots(1, 1)
+    norm, cm, hp = add_map!(ax, data, var, frame, maxq=maxq,
+        norm=norm, shape=shape, outline=outline)
+
+    county_line = nothing
+
+    IDX = frame
+
+    update_figure(idx::Integer) = begin
+        c = map(x -> data.data[idx, x, var], data.fips)
+        hp.set_facecolors(cm(scale(norm, c)))
+        ax.set_title("Day " * string(idx-1), fontsize=18)
+        time_idc.set_xdata([idx-1, idx-1])
+    end
+
+    onscroll(evt) = begin
+        tmp = evt.button == "up" ? IDX + 1 : IDX - 1
+        tmp = max(1, min(nt, tmp))
+        if tmp != IDX
+            IDX = tmp
+            update_figure(IDX)
+        end
+    end
+
+    onpick(evt) = begin
+        if evt.mouseevent.button == 1
+            b, l = hp.contains(evt.mouseevent)
+            if b
+                kt = nearest_shape(data, l["ind"], evt.mouseevent)
+                idx = l["ind"][kt] + 1
+                fips_code = data.fips[idx]
+                v = data.data[fips_code, var]
+                mx_use = max(mx2, maximum(v))
+                time_idc.set_ydata([0, mx_use])
+                gn = titlecase(geo_name(T)) * " "
+            end
+        end
+    end
+
+    h.tight_layout()
+
+    if !isempty(ofile)
+        if endswith(ofile, ".mp4")
+            anim = animation.FuncAnimation(h, update_figure, frames=IDX:nt)
+            anim.save(ofile, fps=fps)
+        else
+            h.savefig(ofile, dpi=200)
+        end
+    else
+        h.canvas.mpl_connect("scroll_event", onscroll)
+        h.canvas.mpl_connect("pick_event", onpick)
+    end
+
+    return h, ax
+end
+# ---------------------------------------------------------------------------- #
+function make_map(data::GeoplotData{T}, var::AbstractString;
+    ofile::AbstractString="", maxq::Real=quantile_threshold(T),
+    frame::Integer=1, vertical::Bool=false,
+    norm::Type{<:AbstractNorm}=ExtremaNorm,
+    shape::Type{<:AbstractShape}=default_shape(T),
+    outline::Type{<:AbstractGeo}=default_outline(T),
+    agg_level::Type{<:AbstractGeo}=State) where T<:AbstractGeo
+
+    nt = n_timepoint(data)
+
+    @assert(0 < frame <= nt, "given frame $(frame) is out-of-bounds")
+
+    nstate = n_state(data)
+    width = nstate > 25 ? 15 : 14
+    w_ratio = [1.0, 1.0]
+    if 25 < nstate <= 40
+        w_ratio .= [1.3, 1.0]
+    elseif nstate > 40
+        w_ratio .= [1.7, 1.0]
+    end
+
+    h, ax = subplots(1, 1)
+    norm, cm, hp = add_map!(ax, data, var, frame, maxq=maxq,
+        norm=norm, shape=shape, outline=outline)
+
+    county_line = nothing
+
+    IDX = frame
+
+    update_figure(idx::Integer) = begin
+        c = map(x -> data.data[idx, x, var], data.fips)
+        hp.set_facecolors(cm(scale(norm, c)))
+        ax.set_title("Day " * string(idx-1), fontsize=18)
+        time_idc.set_xdata([idx-1, idx-1])
+    end
+
+    onscroll(evt) = begin
+        tmp = evt.button == "up" ? IDX + 1 : IDX - 1
+        tmp = max(1, min(nt, tmp))
+        if tmp != IDX
+            IDX = tmp
+            update_figure(IDX)
+        end
+    end
+
+    onpick(evt) = begin
+        if evt.mouseevent.button == 1
+            b, l = hp.contains(evt.mouseevent)
+            if b
+                kt = nearest_shape(data, l["ind"], evt.mouseevent)
+                idx = l["ind"][kt] + 1
+                fips_code = data.fips[idx]
+                v = data.data[fips_code, var]
+                mx_use = max(mx2, maximum(v))
+                time_idc.set_ydata([0, mx_use])
+                gn = titlecase(geo_name(T)) * " "
+            end
+        end
+    end
+
+    h.tight_layout()
+
+    if !isempty(ofile)
+        if endswith(ofile, ".mp4")
+            anim = animation.FuncAnimation(h, update_figure, frames=2:nt)
+            anim.save(ofile, fps=3)
+        else
+            h.savefig(ofile, dpi=200)
+        end
+    else
+        h.canvas.mpl_connect("scroll_event", onscroll)
+        h.canvas.mpl_connect("pick_event", onpick)
+    end
+
+    return h, ax
+end
 # ============================================================================ #
-function load_polygons(ifile::AbstractString, geo::Set{<:Integer}, level::Integer=1;
-    field::Symbol=:GEOID)
+function load_polygons(ifile::AbstractString, geo::AbstractSet{<:Integer},
+    level::Integer=1; field::Symbol=:GEOID)
 
     tbl = Shapefile.Table(ifile)
     fips = parse.(Int, getproperty(tbl, field))
@@ -636,7 +859,8 @@ function load_polygons(ifile::AbstractString, geo::Set{<:Integer}, level::Intege
     return convert(Vector{Shapefile.Polygon}, out), fips[idx]
 end
 # ============================================================================ #
-function state_outlines!(ax, shpfile::AbstractString, states::Set{<:Integer}, color::AbstractString="white")
+# /Users/palexander/Documents/emerge+radium/geo-data/cb_2019_us_state_500k/cb_2019_us_state_500k.shp
+function state_outlines!(ax, shpfile::AbstractString, states::AbstractSet{<:Integer}, color::AbstractString="white")
     shps, _ = load_polygons(shpfile, states, 1)
     for shp in shps
         add_state_outline!(ax, shp, edgecolor=color, color="none")
@@ -671,20 +895,26 @@ function epidemic_overview(data::GeoplotData, var::AbstractString,
     frames::AbstractVector{<:Integer}, ax::Vector{PyCall.PyObject},
     start_date::AbstractString; labs=["A.", "B."], laby::Real=0.99,
     lab_loc::AbstractString="left", timeseries_geo::Type{<:AbstractGeo}=State,
-    geo_ids::AbstractVector{<:Integer}=Int[], n_geo::Integer=15,
-    vpad::Real=0.02, clim::AbstractVector{<:Real}=[NaN,NaN],
+    n_geo::Integer=15, vpad::Real=0.02, ymax::Real=Nan,
+    cmap::AbstractString="viridis", geo_ids::AbstractVector{<:Integer}=Int[],
+    legend_kws=DEFAULT_LEGEND, gap::Real=0,
+    label_fontsize=30, title=" ", clim::AbstractVector{<:Real}=[NaN,NaN],
     ylim::AbstractVector{<:Real}=[NaN,NaN])
 
     h = ax[1].figure
 
-    add_frame!(h, ax[1], ax[end-1], data, var, frames[1], clim)
+    add_frame!(h, ax[1], ax[end-1], data, var, frames[1];
+               cmap=cmap, clim)
 
     for k in 2:length(frames)
-        add_frame!(h, ax[k], nothing, data, var, frames[k], clim)
+        add_frame!(h, ax[k], nothing, data, var, frames[k];
+                   cmap=cmap, clim)
     end
 
     mx2, time_idc, geo_use = add_state_timeseries!(ax[end], data, var,
-        frames[1], false, start_date, n_geo, timeseries_geo, geo_ids)
+        frames[1], false, start_date, n_geo, timeseries_geo;
+        geo_ids=geo_ids, legend_kws=legend_kws, ymax=ymax,
+        gap=gap, title=title)
 
     yl = copy(ylim)
     k = findall(isnan, yl)
@@ -701,21 +931,22 @@ function epidemic_overview(data::GeoplotData, var::AbstractString,
         ax[end].text(t-1, yd[2], string(t-1), fontsize=12, va="bottom",
             ha="center")
     end
-    
+
     position_epi_frames(ax[1:end-1], ax[end], vpad)
 
     pos = axes_perimiter(ax[1]).bounds
-    h.text(pos[1],laby,labs[1], fontsize=30, va="top", ha=lab_loc)
+    h.text(pos[1],laby,labs[1], fontsize=label_fontsize,
+           va="top", ha=lab_loc)
 
     pos = axes_perimiter(ax[end]).bounds
-    h.text(pos[1],laby,labs[2], fontsize=30, va="top", ha=lab_loc)
+    h.text(pos[1],laby,labs[2], fontsize=label_fontsize,
+           va="top", ha=lab_loc)
 
     return h, ax, geo_use
 end
 # ============================================================================ #
 function add_frame!(h, ax, cbax, data::GeoplotData, var::AbstractString,
-    frame::Integer, clim::AbstractVector{<:Real})
-    
+    frame::Integer, clim::AbstractVector{<:Real}; cmap::AbstractString="viridis")
     norm, cm, hp = add_map!(ax, data, var, frame, mn=clim[1], mx=clim[2])
 
     # ax.set_facecolor("blue")
@@ -727,7 +958,7 @@ function add_frame!(h, ax, cbax, data::GeoplotData, var::AbstractString,
             cax = cbax
         )
 
-        cb.set_label("New cases per 100k residents", fontsize=12)
+        cb.set_label("Proportion of agents newly infected", fontsize=12)
     else
         cb = nothing
     end
@@ -784,6 +1015,19 @@ const STATE_FIPS = Dict(
     41 => "OR", 42 => "PA", 44 => "RI", 45 => "SC", 46 => "SD", 47 => "TN",
     48 => "TX", 49 => "UT", 50 => "VT", 51 => "VA", 53 => "WA", 54 => "WV",
     55 => "WI", 56 => "WY"
+)
+# ============================================================================ #
+# From: https://www2.census.gov/geo/pdfs/maps-data/maps/reference/us_regdiv.pdf
+const DIVISION_FIPS = Dict(
+    [9,23,25,33,44,50] => "NewEng", #"New England",
+    [34,36,42] => "MidAtl", #"Middle Atlantic",
+    [18,17,26,39,55] => "ENCen", #"East North Central",
+    [19, 20,27,29,31,38,46] => "WNCen", #"West North Central",
+    [10,11,12,13,24,37,45,51,54] => "SAtl", #"South Atlantic",
+    [1,21,28,47] => "ESCen", #"East South Central",
+    [5,22,40,48] => "WSCen", #"West South Central",
+    [4,8,12,35,30,49,32,56] => "Mtn", #"Mountain",
+    [2,6,15,41,53] => "Pac", #"Pacific"
 )
 # ============================================================================ #
 end # module EpicastGeoplot
