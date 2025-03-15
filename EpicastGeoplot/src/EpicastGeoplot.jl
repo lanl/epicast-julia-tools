@@ -772,83 +772,6 @@ function make_map(data::GeoplotData{T}, var::AbstractString;
 
     return h, ax
 end
-# ---------------------------------------------------------------------------- #
-function make_map(data::GeoplotData{T}, var::AbstractString;
-    ofile::AbstractString="", maxq::Real=quantile_threshold(T),
-    frame::Integer=1, vertical::Bool=false,
-    norm::Type{<:AbstractNorm}=ExtremaNorm,
-    shape::Type{<:AbstractShape}=default_shape(T),
-    outline::Type{<:AbstractGeo}=default_outline(T),
-    agg_level::Type{<:AbstractGeo}=State) where T<:AbstractGeo
-
-    nt = n_timepoint(data)
-
-    @assert(0 < frame <= nt, "given frame $(frame) is out-of-bounds")
-
-    nstate = n_state(data)
-    width = nstate > 25 ? 15 : 14
-    w_ratio = [1.0, 1.0]
-    if 25 < nstate <= 40
-        w_ratio .= [1.3, 1.0]
-    elseif nstate > 40
-        w_ratio .= [1.7, 1.0]
-    end
-
-    h, ax = subplots(1, 1)
-    norm, cm, hp = add_map!(ax, data, var, frame, maxq=maxq,
-        norm=norm, shape=shape, outline=outline)
-
-    county_line = nothing
-
-    IDX = frame
-
-    update_figure(idx::Integer) = begin
-        c = map(x -> data.data[idx, x, var], data.fips)
-        hp.set_facecolors(cm(scale(norm, c)))
-        ax.set_title("Day " * string(idx-1), fontsize=18)
-        time_idc.set_xdata([idx-1, idx-1])
-    end
-
-    onscroll(evt) = begin
-        tmp = evt.button == "up" ? IDX + 1 : IDX - 1
-        tmp = max(1, min(nt, tmp))
-        if tmp != IDX
-            IDX = tmp
-            update_figure(IDX)
-        end
-    end
-
-    onpick(evt) = begin
-        if evt.mouseevent.button == 1
-            b, l = hp.contains(evt.mouseevent)
-            if b
-                kt = nearest_shape(data, l["ind"], evt.mouseevent)
-                idx = l["ind"][kt] + 1
-                fips_code = data.fips[idx]
-                v = data.data[fips_code, var]
-                mx_use = max(mx2, maximum(v))
-                time_idc.set_ydata([0, mx_use])
-                gn = titlecase(geo_name(T)) * " "
-            end
-        end
-    end
-
-    h.tight_layout()
-
-    if !isempty(ofile)
-        if endswith(ofile, ".mp4")
-            anim = animation.FuncAnimation(h, update_figure, frames=2:nt)
-            anim.save(ofile, fps=3)
-        else
-            h.savefig(ofile, dpi=200)
-        end
-    else
-        h.canvas.mpl_connect("scroll_event", onscroll)
-        h.canvas.mpl_connect("pick_event", onpick)
-    end
-
-    return h, ax
-end
 # ============================================================================ #
 function load_polygons(ifile::AbstractString, geo::AbstractSet{<:Integer},
     level::Integer=1; field::Symbol=:GEOID)
@@ -860,8 +783,9 @@ function load_polygons(ifile::AbstractString, geo::AbstractSet{<:Integer},
     return convert(Vector{Shapefile.Polygon}, out), fips[idx]
 end
 # ============================================================================ #
-# /Users/palexander/Documents/emerge+radium/geo-data/cb_2019_us_state_500k/cb_2019_us_state_500k.shp
-function state_outlines!(ax, shpfile::AbstractString, states::AbstractSet{<:Integer}, color::AbstractString="white")
+function state_outlines!(ax, shpfile::AbstractString, states::AbstractSet{<:Integer},
+    color::AbstractString="white")
+
     shps, _ = load_polygons(shpfile, states, 1)
     for shp in shps
         add_state_outline!(ax, shp, edgecolor=color, color="none")
