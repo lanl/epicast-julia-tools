@@ -117,48 +117,33 @@ geo_conversion(::Type{County}, ::Type{Tract}) = error("Cannot convert counties t
 geo_conversion(::Type{BlockGroup}, ::Type{Tract}) = BG2TRACT
 # ============================================================================ #
 function aggregate!(out::Array{T,3}, k::Integer, tbl::FIPSTable{G,L,3},
-    fips::AbstractVector{<:Integer}, do_avg::Bool) where {T<:Number, G<:AbstractGeo,L<:Number}
+    fips::AbstractVector{<:Integer}, f::Function=sum) where {T<:AbstractFloat,G<:AbstractGeo,L<:Number}
 
-    for x in fips
-        out[:,k,:] .+= tbl[x]
-    end
-    if do_avg
-        out[:,k,:] ./= length(fips)
-    end
+    out[:,k,:] = f(tbl[fips], dims=2)
     return out
 end
 # ---------------------------------------------------------------------------- #
 function aggregate!(out::Array{T,2}, k::Integer, tbl::FIPSTable{G,L,2},
-    fips::AbstractVector{<:Integer}, do_avg::Bool) where {T<:Number, G<:AbstractGeo,L<:Number}
+    fips::AbstractVector{<:Integer}, f::Function=sum) where {T<:AbstractFloat,G<:AbstractGeo,L<:Number}
 
-    for x in fips
-        out[k,:] .+= tbl[x]
-    end
-    if do_avg
-        out[k,:] ./= length(fips)
-    end
+    out[k,:] = f(tbl[fips], dims=1)
     return out
 end
 # ---------------------------------------------------------------------------- #
 function aggregate!(out::Array{T,1}, k::Integer, tbl::FIPSTable{G,L,1},
-    fips::AbstractVector{<:Integer}, do_avg::Bool) where {T<:Number, G<:AbstractGeo,L<:Number}
+    fips::AbstractVector{<:Integer}, f::Function=sum) where {T<:AbstractFloat,G<:AbstractGeo,L<:Number}
 
-    for x in fips
-        out[k] += tbl[x]
-    end
-    if do_avg
-        out[k] /= length(fips)
-    end
+    out[k] = f(tbl[fips])
     return out
 end
 # ---------------------------------------------------------------------------- #
 # aggregate needs to always return a float64 table
-function aggregate(::Type{G}, tbl::FIPSTable{G,T,N}, ::Bool) where {G<:AbstractGeo,T,N}    
+function aggregate(::Type{G}, tbl::FIPSTable{G,T,N}, ::Function) where {G<:AbstractGeo,T,N}    
     return FIPSTable{G,Float64,N}(tbl.fips_index, tbl.var_index,
         Array{Float64,N}(tbl.data))
 end
 # ---------------------------------------------------------------------------- #
-function aggregate(::Type{Go}, tbl::FIPSTable{Gi,T,N}, do_avg::Bool) where {Go,Gi,T,N}
+function aggregate(::Type{Go}, tbl::FIPSTable{Gi,T,N}, f::Function=sum) where {Go,Gi,T,N}
     conv = geo_conversion(Gi, Go)
     
     fips = all_fips(tbl)
@@ -169,11 +154,11 @@ function aggregate(::Type{Go}, tbl::FIPSTable{Gi,T,N}, do_avg::Bool) where {Go,G
     idx = N == 3 ? 2 : 1
     siz[idx] = length(unique_grps)
 
-    data = zeros(Float64, siz...)
+    data = Array{Float64,N}(undef, siz...)
 
     for k in eachindex(unique_grps)
         idx = findall(isequal(unique_grps[k]), fips_conv)
-        aggregate!(data, k, tbl, fips[idx], do_avg)
+        aggregate!(data, k, tbl, fips[idx], f)
     end
 
     fips_idx = Dict{UInt64,Int}(x => k for (k,x) in enumerate(unique_grps))
@@ -181,9 +166,9 @@ function aggregate(::Type{Go}, tbl::FIPSTable{Gi,T,N}, do_avg::Bool) where {Go,G
     return FIPSTable{Go,Float64,N}(fips_idx, tbl.var_index, data)
 end
 # ============================================================================ #
-aggregate_state(tbl::FIPSTable, avg::Bool) = aggregate(State, tbl, avg)
-aggregate_county(tbl::FIPSTable, avg::Bool) = aggregate(County, tbl, avg)
-aggregate_tract(tbl::FIPSTable, avg::Bool) = aggregate(Tract, tbl, avg)
+aggregate_state(tbl::FIPSTable, f::Function=sum) = aggregate(State, tbl, f)
+aggregate_county(tbl::FIPSTable, f::Function=sum) = aggregate(County, tbl, f)
+aggregate_tract(tbl::FIPSTable, f::Function=sum) = aggregate(Tract, tbl, f)
 # ============================================================================ #
 function all_geo(::Type{T}, tbl::FIPSTable{G}) where {G,T<:AbstractGeo}
     return sort!(unique(div.(all_fips(tbl), geo_conversion(G, T))))
