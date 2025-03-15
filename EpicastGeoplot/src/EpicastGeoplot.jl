@@ -820,20 +820,18 @@ function epidemic_overview(data::GeoplotData, var::AbstractString,
     frames::AbstractVector{<:Integer}, ax::Vector{PyCall.PyObject},
     start_date::AbstractString; labs=["A.", "B."], laby::Real=0.99,
     lab_loc::AbstractString="left", timeseries_geo::Type{<:AbstractGeo}=State,
-    n_geo::Integer=15, vpad::Real=0.02, ymax::Real=Nan,
+    n_geo::Integer=15, vpad::Real=0.02, ymax::Real=NaN,
     cmap::AbstractString="viridis", geo_ids::AbstractVector{<:Integer}=Int[],
     legend_kws=DEFAULT_LEGEND, gap::Real=0,
-    label_fontsize=30, title=" ", clim::AbstractVector{<:Real}=[NaN,NaN],
+    label_fontsize=30, title="", clim::AbstractVector{<:Real}=[NaN,NaN],
     ylim::AbstractVector{<:Real}=[NaN,NaN])
 
     h = ax[1].figure
 
-    add_frame!(h, ax[1], ax[end-1], data, var, frames[1];
-               cmap=cmap, clim)
+    add_frame!(h, ax[1], ax[end-1], data, var, frames[1]; cmap=cmap, clim=clim)
 
     for k in 2:length(frames)
-        add_frame!(h, ax[k], nothing, data, var, frames[k];
-                   cmap=cmap, clim)
+        add_frame!(h, ax[k], nothing, data, var, frames[k]; cmap=cmap, clim=clim)
     end
 
     mx2, time_idc, geo_use = add_state_timeseries!(ax[end], data, var,
@@ -871,8 +869,10 @@ function epidemic_overview(data::GeoplotData, var::AbstractString,
 end
 # ============================================================================ #
 function add_frame!(h, ax, cbax, data::GeoplotData, var::AbstractString,
-    frame::Integer, clim::AbstractVector{<:Real}; cmap::AbstractString="viridis")
-    norm, cm, hp = add_map!(ax, data, var, frame, mn=clim[1], mx=clim[2])
+    frame::Integer; clim::AbstractVector{<:Real}, cmap::AbstractString="viridis")
+
+    norm, cm, hp = add_map!(ax, data, var, frame, mn=clim[1], mx=clim[2],
+        cmap=cmap)
 
     # ax.set_facecolor("blue")
 
