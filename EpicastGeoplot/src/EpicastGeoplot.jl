@@ -477,13 +477,6 @@ function get_colors(n::Integer)
     )
 end
 # ============================================================================ #
-function get_colors(n::Integer)
-    return map(col -> (red(col), green(col), blue(col)), 
-        distinguishable_colors(n, [RGB(1,1,1), RGB(0,0,0)],
-            dropseed=true)
-    )
-end
-# ============================================================================ #
 const DEFAULT_LEGEND = Dict(:frameon => true,
                     :bbox_to_anchor => (1.02, 1.0),
                     :loc => nothing)
@@ -491,12 +484,13 @@ const DEFAULT_LEGEND = Dict(:frameon => true,
 function add_state_timeseries!(ax, data::GeoplotData{T}, var::AbstractString,
     frame::Integer=1, vertical::Bool=false, start_date::AbstractString="",
     top::Integer=typemax(Int), AT::Type{<:AbstractGeo}=State;
-    geo_ids::AbstractVector=[], title::AbstractString=" ",
+    geo_ids::AbstractVector=[], title::AbstractString="",
+    ylab::AbstractString="Proportion of agents newly infected",
     legend_kws=DEFAULT_LEGEND, ymax::Real=NaN, gap::Real=0) where T<:AbstractGeo
 
     # if data are already normalized (cases-per-100k) then simply averaging
     # will maintain the proper units
-    state_data = EpicastTables.aggregate(AT, data.data, true)
+    state_data = EpicastTables.aggregate(AT, data.data, mean)
     states = EpicastTables.all_geo(AT, state_data)
     nstate = length(states)
 
@@ -538,7 +532,7 @@ function add_state_timeseries!(ax, data::GeoplotData{T}, var::AbstractString,
 
     ax.spines["right"].set_visible(false)
     ax.spines["top"].set_visible(false)
-    ax.set_ylabel("Proportion of agents newly infected", fontsize=14)
+    ax.set_ylabel(ylab, fontsize=14)
 
     if !isempty(start_date)
         xt, xtl = ticks_to_dates(ax, nt, start_date)
