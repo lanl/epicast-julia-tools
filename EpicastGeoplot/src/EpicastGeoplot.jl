@@ -254,7 +254,7 @@ function geoplot_data(::Type{T}, data_file::AbstractString,
     elseif EpicastTables.has_var(data.data, prefix)
         names = [prefix]
     else
-        names = Epicast.filter_columns(x -> startswith(x, prefix), data.data)
+        names = EpicastTables.filter_vars(x -> startswith(x, prefix), data.data)
     end
 
     return geoplot_data(T, data, names; norms=norms)
@@ -270,7 +270,7 @@ function geoplot_data(::Type{T}, data_file::AbstractString, pat::Regex,
         data = Epicast.read_runfile(data_file, S)
     end
 
-    names = Epicast.filter_columns(x -> match(pat, x) != nothing, data.data)
+    names = EpicastTables.filter_vars(x -> match(pat, x) != nothing, data.data)
 
     return geoplot_data(T, data, names; norms=norms)
 end
@@ -286,36 +286,43 @@ function filter_shapes!(shps::Vector{Shapefile.Polygon}, fips::Vector{<:Integer}
 end
 # ---------------------------------------------------------------------------- #
 function geoplot_data(::Type{T}, all_data::Epicast.RunData,
-    names::AbstractVector{<:AbstractString}, ::Type{S}=UInt32;
+    names::AbstractVector{<:AbstractString};
     norms::Dict{String,String}=Dict{String,String}(),
-    ) where{T <:AbstractGeo, S <: Integer}
+    ) where {T<:AbstractGeo}
+    
     data = data_dict(T, all_data, names, norms)
 
     states = Set(all_states(all_data.data))
 
     shps, fips = load_polygons(shape_file(T), states, to_state(T))
-
     filter_shapes!(shps, fips, data)
 
     return GeoplotData{T,3}(shps, fips, data)
 end
 # ---------------------------------------------------------------------------- #
-aggregate_to(::Type{County}, data::FIPSTable) = aggregate_county(data, true)
-aggregate_to(::Type{Tract}, data::FIPSTable) = aggregate_tract(data, true)
-aggregate_to(::Type{BlockGroup}, data::FIPSTable) = data
+function geoplot_data(::Type{T}, data::Epicast.RunData) where {T<:AbstractGeo}
+
+    tmp = Epicast.aggregate(T, data)
+
+    states = Set(all_states(tmp.data))
+
+    shps, fips = load_polygons(shape_file(T), states, to_state(T))
+    filter_shapes!(shps, fips, tmp.data)
+
+    return GeoplotData{T,3}(shps, fips, tmp.data)
+end
+# ---------------------------------------------------------------------------- #
+geoplot_data(data::Epicast.RunData{G}) where G<:AbstractGeo = geoplot_data(G, data)
 # ---------------------------------------------------------------------------- #
 function geoplot_data(data::FIPSTable{G,Float64,N}) where {G<:AbstractGeo,N}
     states = Set(all_states(data))
     shps, fips = load_polygons(shape_file(G), states, to_state(G))
-    # tmp = aggregate_to(G, data)
     filter_shapes!(shps, fips, data)
     return GeoplotData{G,N}(shps, fips, data)
 end
 # ---------------------------------------------------------------------------- #
-function geoplot_data(data::FIPSTable{G,L,N}) where {G<:AbstractGeo,L<:Integer,N}
-    tmp = FIPSTable{G,Float64,N}(data.fips_index, data.var_index,
-        Array{Float64,N}(data.data))
-    return geoplot_data(tmp)
+function geoplot_data(data::FIPSTable{G,L,N}) where {G<:AbstractGeo,L<:Real,N}
+    return geoplot_data(EpicastTables.convert_datatype(Float64, data))
 end
 # ============================================================================ #
 function generate_polygons(shps::Vector{Shapefile.Polygon})
