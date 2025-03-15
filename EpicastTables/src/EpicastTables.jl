@@ -3,7 +3,7 @@ module EpicastTables
 import Base
 
 export FIPSTable, aggregate_state, aggregate_county, aggregate_tract,
-    all_states, all_counties, all_tracts, filter_vars
+    all_states, all_counties, all_tracts, filter_vars, convert_datatype
 
 export AbstractGeo, BlockGroup, Tract, County, State
 # ============================================================================ #
@@ -49,6 +49,10 @@ function FIPSTable(::Type{G}, data::Array{T,N}, fips::AbstractVector{<:Integer},
     return FIPSTable{G,T,N}(fips_index, var_index, data)
 end
 # ---------------------------------------------------------------------------- #
+function convert_datatype(::Type{T}, f::FIPSTable{G,L,N}) where {T<:Real,G,L,N}
+    return FIPSTable{G,T,N}(f.fips_index, f.var_index, Array{T,N}(f.data))
+end
+# ---------------------------------------------------------------------------- #
 all_fips(tbl::FIPSTable) = collect(keys(tbl.fips_index))
 has_fips(tbl::FIPSTable, fips::Integer) = haskey(tbl.fips_index, fips)
 all_vars(tbl::FIPSTable) = collect(keys(tbl.var_index))
@@ -79,6 +83,19 @@ Base.getindex(tbl::FIPSTable{G,T,3}, fips::Integer) where {T,G} = view(tbl.data,
 Base.getindex(tbl::FIPSTable{G,T,3}, fips::Integer, var::AbstractString) where {T,G} = view(tbl.data, :, tbl.fips_index[fips], tbl.var_index[var])
 Base.getindex(tbl::FIPSTable{G,T,3}, var::AbstractString) where {T,G} = view(tbl.data, :, :, tbl.var_index[var])
 Base.getindex(tbl::FIPSTable{G,T,3}, k::Integer, fips::Integer, var::AbstractString) where {T,G} = tbl.data[k, tbl.fips_index[fips], tbl.var_index[var]]
+
+function Base.getindex(tbl::FIPSTable{G,T,1}, fips::AbstractVector{<:Integer}) where {T,G}
+    idx = Int[tbl.fips_index[x] for x in fips]
+    return view(tbl.data, idx)
+end
+function Base.getindex(tbl::FIPSTable{G,T,2}, fips::AbstractVector{<:Integer}) where {T,G}
+    idx = Int[tbl.fips_index[x] for x in fips]
+    return view(tbl.data, idx, :)
+end
+function Base.getindex(tbl::FIPSTable{G,T,3}, fips::AbstractVector{<:Integer}) where {T,G}
+    idx = Int[tbl.fips_index[x] for x in fips]
+    return view(tbl.data, :, idx, :)
+end
 # ============================================================================ #
 Base.:(==)(a::FIPSTable, b::FIPSTable) = false
 function Base.:(==)(a::FIPSTable{G,T,N}, b::FIPSTable{G,T,N}) where {G<:AbstractGeo,T<:Number,N}
