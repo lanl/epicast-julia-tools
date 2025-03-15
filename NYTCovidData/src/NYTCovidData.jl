@@ -279,7 +279,7 @@ function to_fips_table(data::AbstractMatrix, counties::AbstractVector{<:Integer}
     )
 
     if agg
-        out = aggregate_state(cnty, false)
+        out = aggregate_state(cnty)
     else
         out = cnty
     end
