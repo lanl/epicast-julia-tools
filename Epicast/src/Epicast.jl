@@ -6,6 +6,8 @@ using EpicastTables
 
 import Base
 
+const SignedType = Union{AbstractFloat,Signed}
+
 # ============================================================================ #
 function epi_plot(idir::AbstractString, run::Integer=2)
 
@@ -152,12 +154,13 @@ end
 # ============================================================================ #
 abstract type AbstractRunData end
 # ============================================================================ #
-struct RunData{T} <: AbstractRunData
-    demog::FIPSTable{Tract,T,2}
-    data::FIPSTable{Tract,T,3}
-    fips::Vector{UInt64}
+struct RunData{G<:AbstractGeo,T1<:Real,T2<:Real,I<:Integer} <: AbstractRunData
+    demog::FIPSTable{G,T1,2}
+    data::FIPSTable{G,T2,3}
+    fips::Vector{I}
     runno::String
 end
+# ============================================================================ #
 rundata(x::RunData, s::AbstractString) = x.data[s]
 has_data(x::RunData, s::AbstractString) = EpicastTables.has_var(x.data, s)
 demographics(x::RunData, s::AbstractString) = x.demog[s]
@@ -170,8 +173,125 @@ function data_groups(x::RunData)
     end
     return names
 end
-column_names(x::RunData) = collect(keys(x.data.var_index))
-demographic_names(x::RunData) = collect(keys(x.demog.var_index))
+column_names(x::RunData) = EpicastTables.all_vars(x.data)
+demographic_names(x::RunData) = EpicastTables.all_vars(x.demog)
+# ============================================================================ #
+# noop if geographies are the same and datatype is float
+aggregate(::Type{G}, d::RunData{G,<:Real,Float64}, f::Function=sum) where {G<:AbstractGeo} = d
+# ---------------------------------------------------------------------------- #
+# convert to Float64 if not already
+function aggregate(::Type{G}, d::RunData{G,<:Real,<:Real}, f::Function=sum) where {G<:AbstractGeo}
+    return RunData(d.demog, convert_datatype(Float64, d.data), d.fips, d.runno)
+end
+# ---------------------------------------------------------------------------- #
+function aggregate(::Type{G}, d::RunData, f::Function=sum) where {G<:AbstractGeo}
+    # I don't think it would ever make sense to "mean" the demographic data when
+    # aggregating... we'll see
+    demog = EpicastTables.aggregate(G, d.demog, sum)
+    data = EpicastTables.aggregate(G, d.data, f)
+    return RunData(demog, data, EpicastTables.all_fips(data), d.runno)
+end
+# ============================================================================ #
+function smooth!(d::RunData{G,L,T}, var::AbstractString, n::Integer=7,
+    f::Function=mean) where {G,L,T<:AbstractFloat}
+    
+    EpicastTables.smooth!(d.data, var, n, f)
+    return d
+end
+# ---------------------------------------------------------------------------- #
+function smooth!(d::RunData{G,L,T}, vars::AbstractVector{<:AbstractString},
+    n::Integer=7, f::Function=mean) where {G,L,T<:AbstractFloat}
+
+    foreach(var -> EpicastTables.smooth!(d.data, var, n, f), vars)
+    return d
+end
+# ---------------------------------------------------------------------------- #
+function smooth(d::RunData, vars::AbstractVector{<:AbstractString},
+    n::Integer=7, f::Function=mean)
+
+    return smooth!(convert_datatype(Float64, d), var, n, f)
+end
+# ============================================================================ #
+function diff!(d::RunData{G,L,T}, var::AbstractString) where {G,L,T<:SignedType}
+    tmp = d.data[var]
+    N = size(tmp,1)
+    tmp[2:N,:] .= Base.diff(tmp, dims=1)
+    return d
+end
+# ---------------------------------------------------------------------------- #
+function diff!(d::RunData{G,L,T}, vars::AbstractVector{<:AbstractString}) where {T<:SignedType,G,L}
+    foreach(var -> diff!(d, var), vars)
+    return d
+end
+# ---------------------------------------------------------------------------- #
+function diff(d::RunData, vars::AbstractVector{<:AbstractString},
+    ::Type{T}=Float64) where T<:SignedType
+ 
+    return diff!(convert_datatype(T, d), vars)
+end
+# ============================================================================ #
+function default_denom(d::RunData, var::AbstractString)
+    if has_demographic(d, denom)
+        denom_data = d.demog[denom]
+    elseif has_data(d, denom)
+        denom_data = d.data[denom]
+    else
+        error("variable \"$(denom)\" does not exist in given RunData")
+    end
+
+    return denom_data
+end
+# ============================================================================ #
+function normalize!(d::RunData{G,L,T}, var::AbstractString,
+    get_denom::Function=default_denom) where {G,L,T<:AbstractFloat}
+    
+    d.data[var] ./= reshape(get_denom(d, var), 1, :)
+    return d
+end
+# ============================================================================ #
+function preprocess!(d::RunData{G,L,T}, var::AbstractString; smooth::Bool=false,
+    diff::Bool=false, get_denom::Function=x->default_denom(d, var)) where {G,L,T<:AbstractFloat}
+
+    smooth && smooth!(d, var)
+    diff && diff!(d, var)
+
+    return normalize!(d, var, get_denom)
+end
+# ---------------------------------------------------------------------------- #
+function preprocess!(d::RunData{G,L,T}, vars::AbstractVector{<:AbstractString};
+    smooth::Bool=false, diff::Bool=false,
+    get_denom::Function=x->default_denom(d, var)) where {G,L,T<:AbstractFloat}
+
+    for var in vars
+        preprocess!(d, var, smooth=smooth, diff=diff, get_denom=get_denom)
+    end
+
+    return d
+end
+# ---------------------------------------------------------------------------- #
+function preprocess!(d::RunData{G,L,T}, fmatch::Function; smooth::Bool=false,
+    diff::Bool=false, get_denom::Function=x->default_denom(d, var)) where {G,L,T<:AbstractFloat}
+
+    for name in column_names(d)
+        fmatch(name) && preprocess!(d, name, smooth=smooth, diff=diff,
+            get_denom=get_denom)
+    end
+
+    return d
+end
+# ---------------------------------------------------------------------------- #
+function preprocess!(d::RunData{G,L,T}, pat::Regex; smooth::Bool=false,
+    diff::Bool=false, get_denom::Function=x->default_denom(d, var)) where {G,L,T<:AbstractFloat}
+
+    preprocess!(d, x -> occursin(pat, x), smooth=smooth, diff=diff,
+        get_denom=get_denom)
+
+    return d
+end
+# ---------------------------------------------------------------------------- #
+function preprocess(::Type{G}, d::RunData, args...) where {G<:AbstractGeo}
+    return preprocess!(aggregate(G, d), args...)
+end
 # ============================================================================ #
 function case_count!(out::AbstractVector, x::RunData, var::AbstractString,
     idx::AbstractVector{<:Integer}, norm::AbstractString="")
@@ -283,7 +403,7 @@ function read_runfile(ifile::AbstractString, ::Type{T}=UInt32) where T <: Intege
         data = Array{T,3}(undef, nrow, ncol, n_pt)
         read!(io, data)
 
-        return RunData{T}(
+        return RunData{Tract,T,T,UInt64}(
             demo,
             FIPSTable{Tract,T,3}(
                 run_index(fips),
@@ -347,7 +467,7 @@ function RunData(demog::FIPSTable{G,T,2}, data::Vector{AgentTransition},
         view(tmp, s:n_pt, r, 1) .+= 1
     end
 
-    return RunData{T}(
+    return RunData{G,T,T,UInt64}(
         demog,
         FIPSTable{G,T,3}(run_index(fips), run_index(["total"]), tmp),
         fips,
@@ -384,6 +504,11 @@ function read_eventfile(::Type{T}, ifile::AbstractString) where T<:AbstractRunDa
 end
 
 read_eventfile(ifile::AbstractString) = read_eventfile(RunData, ifile)
+# ============================================================================ #
+function read_rundata(ifile::AbstractString, ::Type{T}=UInt32) where T<:Integer
+    return endswith(ifile, ".events.bin") ? read_eventfile(ifile) :
+        read_runfile(ifile, T)
+end
 # ============================================================================ #
 total_cases(x::AbstractVector{<:Real}) = x
 total_cases(x::AbstractMatrix{<:Real}) = dropdims(sum(x, dims=2),dims=2)
@@ -586,7 +711,7 @@ function plot_states(data::RunData, ofile::AbstractString; title::AbstractString
     return nothing
 end
 # ============================================================================ #
-function plot_run(data::Vector{RunData{T}}, name::AbstractString; args...) where T<:Number
+function plot_run(data::Vector{RunData}, name::AbstractString; args...)
 
     h, ax = (nothing,nothing)
 
@@ -602,7 +727,7 @@ function plot_runs(data, name::AbstractString; freduce=total_cases, reduce_cols=
     title::String="", h=nothing, ax=nothing, style::Function=(h, ax) -> nothing,
     dataset_names::AbstractVector{<:AbstractString}=nothing)
 
-    cols = map(d -> filter_columns(x -> startswith(x, name), d.data), data)
+    cols = map(d -> filter_vars(x -> startswith(x, name), d.data), data)
     if h == nothing || ax == nothing
         h, ax = subplots(1, 1)
         h.set_size_inches((8,6))
@@ -694,14 +819,14 @@ function plot_run(data::RunData, name::AbstractString; freduce=total_cases,
         distinguishable_colors(length(cols), [RGB(1,1,1), RGB(0,0,0)],
             dropseed=true)
     )
-    tmp = EpicastTables.aggregate(agg_level, data.data, false)
+    tmp = EpicastTables.aggregate(agg_level, data.data)
     for (k, col) in enumerate(cols)
         if smooth
             EpicastTables.smooth!(tmp, col, 7, mean)
         end
         cases = freduce(tmp[col])
         if normalize && has_demographic(data, name)
-            pop = EpicastTables.aggregate(agg_level, data.demog, false)[name]
+            pop = EpicastTables.aggregate(agg_level, data.demog)[name]
             cases ./= (pop ./ 1e5)
             replace!(x -> isnan(x) || isinf(x) ? 0.0 : x, cases)
         end
