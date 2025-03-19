@@ -194,7 +194,7 @@ end
 # ============================================================================ #
 function smooth!(d::RunData{G,L,T}, var::AbstractString, n::Integer=7,
     f::Function=mean) where {G,L,T<:AbstractFloat}
-    
+
     EpicastTables.smooth!(d.data, var, n, f)
     return d
 end
@@ -226,7 +226,7 @@ end
 # ---------------------------------------------------------------------------- #
 function diff(d::RunData, vars::AbstractVector{<:AbstractString},
     ::Type{T}=Float64) where T<:SignedType
- 
+
     return diff!(convert_datatype(T, d), vars)
 end
 # ============================================================================ #
@@ -244,7 +244,7 @@ end
 # ============================================================================ #
 function normalize!(d::RunData{G,L,T}, var::AbstractString,
     get_denom::Function=default_denom) where {G,L,T<:AbstractFloat}
-    
+
     d.data[var] ./= reshape(get_denom(d, var), 1, :)
     return d
 end
@@ -515,12 +515,12 @@ total_cases(x::AbstractMatrix{<:Real}) = dropdims(sum(x, dims=2),dims=2)
 # ============================================================================ #
 function new_cases(x::AbstractMatrix{<:Real}, f::Function=sum)
     out = dropdims(f(x, dims=2),dims=2)
-    out[2:end] .= diff(out)
+    out[2:end] .= Base.diff(out)
     return out
 end
 function new_cases(x::AbstractVector{<:Real}, f::Function=sum)
     out = copy(x)
-    out[2:end] .= diff(out)
+    out[2:end] .= Base.diff(out)
     return out
 end
 mean_new_cases(x) = new_cases(x, mean)
