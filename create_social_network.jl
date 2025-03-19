@@ -11,15 +11,18 @@ function write_header!(out_stream::IOStream,
         all_pops::AbstractVector{<:Int64})
     n_edges = Graphs.degree(graph)
     person_edge_offsets = cumsum(n_edges) - n_edges
-    tract_person_offsets = cumsum(all_pop) - all_pop
-    tract_edge_offsets = [person_edge_offsets[i+1] for i in tract_person_offsets]
 
-    write(out_stream, tract_edge_offsets)
-    write(out_stream, "\n");
+    ne = Graphs.ne(graph)
+    nv = Graphs.nv(graph)
+    print("Generated graph with $ne edges, $nv nodes\n")
+    write(out_stream, ne)
+    write(out_stream, nv)
+    write(out_stream, person_edge_offsets)
 end
 
 function get_edgelist(graph::AbstractGraph)
-    return reduce(vcat, [[Graphs.src(e), Graphs.dst(e)] for e in Graphs.edges(graph)])
+    return reduce(vcat, [[Graphs.src(e), Graphs.dst(e)]
+                         for e in Graphs.edges(graph)])
 end
 
 function main()
