@@ -7,7 +7,8 @@ using UrbanPop
 using Graphs
 
 function get_edgelist(graph::AbstractGraph{T}) where T<:Integer
-    return reduce(vcat, [[Graphs.src(e) .% T, Graphs.dst(e) .% T]
+    return reduce(hcat, [[(Graphs.src(e) - 1) .% T,
+                          (Graphs.dst(e) - 1) .% T]
                          for e in Graphs.edges(graph)])
 end
 
@@ -15,12 +16,12 @@ function get_edge_offsets(graph::AbstractGraph{T}
     ) where T<:Integer
     degrees = Graphs.degree(graph)
     person_edge_offsets = cumsum(degrees) - degrees
-    append!(person_edge_offsets, Graphs.ne(graph) .% T)
+    append!(person_edge_offsets, 2*Graphs.ne(graph) .% T)
     return person_edge_offsets
 end
 
 function get_dsts(graph::AbstractGraph{T}) where T<:Integer
-    return [Graphs.dst(e) - 1 .% T for e in Graphs.edges(graph)]
+    return reduce(vcat, Graphs.SimpleGraphs.adj(graph))
 end
 
 function write_header!(out_stream::IOStream,
@@ -58,6 +59,8 @@ function main()
     open(edges_file, "w") do edge_stream
         dsts = get_dsts(g)
         write(edge_stream, dsts)
+        #es = get_edgelist(g)
+        #write(edge_stream, es)
     end
 end
 
