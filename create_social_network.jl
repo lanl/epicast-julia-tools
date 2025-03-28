@@ -42,8 +42,7 @@ function main()
     in_dir = "../data"
     tracts_file = "$in_dir/49.tracts.bin"
     agents_file = "$in_dir/49.agents.bin"
-    offsets_file = "$in_dir/49.social_offsets.bin"
-    edges_file = "$in_dir/49.social_edges.bin"
+    out_file = "$in_dir/49.social.bin"
 
     all_tracts, all_pop = UrbanPop.all_tract_data(in_dir)
     total_pop = sum(all_pop)
@@ -52,15 +51,11 @@ function main()
 
     # Todo: write seperate file for each state, similar to
     # how tracts and agents work
-    open(offsets_file, "w") do offset_stream
-        write_header!(offset_stream, g, all_pop)
-    end
+    open(out_file, "w") do stream
+        write_header!(stream, g, all_pop)
 
-    open(edges_file, "w") do edge_stream
         dsts = get_dsts(g)
-        write(edge_stream, dsts)
-        #es = get_edgelist(g)
-        #write(edge_stream, es)
+        write(stream, dsts)
     end
 end
 
