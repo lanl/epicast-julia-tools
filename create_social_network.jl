@@ -21,7 +21,8 @@ function get_edge_offsets(graph::AbstractGraph{T}
 end
 
 function get_dsts(graph::AbstractGraph{T}) where T<:Integer
-    return reduce(vcat, Graphs.SimpleGraphs.adj(graph))
+    tmp = reduce(vcat, Graphs.SimpleGraphs.adj(graph))
+    return (tmp .- 1) .% T
 end
 
 function write_header!(out_stream::IOStream,
