@@ -8,10 +8,11 @@ using Graphs
 using Printf
 
 @inline fips_state(x) = floor.(Int, x ./ 1e9)
-function get_state_offsets(tract_fips, tract_pops)
+function get_state_offsets(tract_fips::AbstractVector{<:UInt64},
+        tract_pops::AbstractVector{T}) where T<:Integer
     states = fips_state(tract_fips)
     n_states = length(unique(states))
-    offsets = zeros(UInt64, n_states, 3)
+    offsets = zeros(T, n_states, 3)
 
     offset = 0
     last_state = 0
@@ -35,9 +36,10 @@ function get_state_offsets(tract_fips, tract_pops)
 end
 
 n_state_bits = 6
-state_shift = 64 - n_state_bits
-@inline state_node_range(offset::Integer, pop::Integer) =
-    range(offset + 1, offset+pop)
+state_shift = 32 - n_state_bits
+@inline function state_node_range(offset::T, pop::T) where T<:Integer
+    return range(offset + 1, offset+pop) .% T
+end
 function get_agent_ids(total_pop::T,
         state_offsets::Matrix{T}) where T<:Integer
     ids = Vector{T}(range(1, total_pop))
@@ -45,12 +47,12 @@ function get_agent_ids(total_pop::T,
     n_states = size(state_offsets)[1]
     for r in range(1, n_states)
         (state, offset, pop) = state_offsets[r, :]
-        state_start = state << 58
+        state_start = (state << state_shift)
         ids[state_node_range(offset, pop)] =
             range(state_start, state_start+pop-1)
 
-        first = ids[offset + 1] .% Int128
-        last = ids[offset+pop] .% Int128
+        first = ids[offset + 1] .% Int64
+        last = ids[offset+pop] .% Int64
         println("state $state has $pop people with ids: [$first, $last]")
     end
 
@@ -85,7 +87,7 @@ end
 
 function write_header!(out_stream::IOStream,
         graph::AbstractGraph{T},
-        all_pops::AbstractVector{<:Int64}) where T<:Integer
+        all_pops::AbstractVector{<:UInt64}) where T<:Integer
     ne = Graphs.ne(graph)
     nv = Graphs.nv(graph)
     write(out_stream, ne .% T)
@@ -119,12 +121,12 @@ function main()
 
     all_tracts, all_pop = UrbanPop.all_tract_data(in_dir)
     all_tracts = all_tracts .% UInt64
-    all_pop = all_pop .% UInt64
-    total_pop = sum(all_pop)
+    all_pop = all_pop .% UInt32
+    total_pop = sum(all_pop) .% UInt32
     state_offsets = get_state_offsets(all_tracts, all_pop)
     agent_ids = get_agent_ids(total_pop, state_offsets)
 
-    g = Graphs.newman_watts_strogatz(UInt64(total_pop), 100, 0.1)
+    g = Graphs.newman_watts_strogatz(UInt32(total_pop), 100, 0.1)
     #print_summary(g)
 
     n_states = size(state_offsets)[1]
