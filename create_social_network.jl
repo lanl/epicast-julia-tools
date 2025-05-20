@@ -3,9 +3,38 @@
 import Pkg
 
 Pkg.activate("UrbanPop")
+using ArgParse
 using UrbanPop
 using Graphs
 using Printf
+
+function parse_args(args)
+    s = ArgParseSettings()
+    @add_arg_table! s begin
+        "--in-dir", "-i"
+            default="../data"
+            help="Path to file containing UrbanPop data"
+        "--out-dir", "-o"
+            default=""
+            help="Path to save resulting data to (defaults to in_dir)"
+        "--ave-degree", "-k"
+            default=100
+            arg_type=Int
+            help="Average degree to use in generated network"
+        "--beta", "-b"
+            default=0.1
+            arg_type=Real
+            help="Rewiring probability to use when generating network"
+    end
+
+    args = ArgParse.parse_args(args, s)
+
+    if args["out-dir"] == ""
+        args["out-dir"] = args["in-dir"]
+    end
+
+    return args
+end
 
 @inline fips_state(x) = floor.(Int, x ./ 1e9)
 function get_state_offsets(tract_fips::AbstractVector{<:UInt64},
@@ -116,26 +145,27 @@ function write_state(out_file::AbstractString,
     end
 end
 
-function main()
-    in_dir = "../data"
-
-    all_tracts, all_pop = UrbanPop.all_tract_data(in_dir)
+function main(args)
+    all_tracts, all_pop = UrbanPop.all_tract_data(args["in-dir"])
     all_tracts = all_tracts .% UInt64
     all_pop = all_pop .% UInt32
     total_pop = sum(all_pop) .% UInt32
     state_offsets = get_state_offsets(all_tracts, all_pop)
     agent_ids = get_agent_ids(total_pop, state_offsets)
 
-    g = Graphs.newman_watts_strogatz(UInt32(total_pop), 100, 0.1)
+    g = Graphs.newman_watts_strogatz(UInt32(total_pop), args["ave-degree"], args["beta"])
     #print_summary(g)
 
     n_states = size(state_offsets)[1]
+    out_dir = args["out-dir"]
     for r in range(1, n_states)
         (state, offset, pop) = state_offsets[r, :]
         out_file = @sprintf("%02d.social.bin", state)
-        write_state("$in_dir/$out_file", g, state, offset,
+        write_state("$out_dir/$out_file", g, state, offset,
                     pop, agent_ids)
     end
 end
 
-main()
+if abspath(PROGRAM_FILE) == @__FILE__
+    main(parse_args(ARGS))
+end
