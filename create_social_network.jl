@@ -25,6 +25,11 @@ function parse_args(args)
             default=0.1
             arg_type=Real
             help="Rewiring probability to use when generating network"
+        "--states", "-s"
+            default=[]
+            arg_type=Int
+            nargs='+'
+            help="A list of state FIPS codes to include in graph (defaults to using all states)"
     end
 
     args = ArgParse.parse_args(args, s)
@@ -38,9 +43,15 @@ end
 
 @inline fips_state(x) = floor.(Int, x ./ 1e9)
 function get_state_offsets(tract_fips::AbstractVector{<:UInt64},
-        tract_pops::AbstractVector{T}) where T<:Integer
-    states = fips_state(tract_fips)
-    n_states = length(unique(states))
+        tract_pops::AbstractVector{T}, states::AbstractVector{<:Int}
+        ) where T<:Integer
+    if 0 == length(states)
+        states = unique(fips_state(tract_fips))
+    else
+        states = intersect(states, fips_state(tract_fips))
+    end
+
+    n_states = length(states)
     offsets = zeros(T, n_states, 3)
 
     offset = 0
@@ -150,7 +161,7 @@ function main(args)
     all_tracts = all_tracts .% UInt64
     all_pop = all_pop .% UInt32
     total_pop = sum(all_pop) .% UInt32
-    state_offsets = get_state_offsets(all_tracts, all_pop)
+    state_offsets = get_state_offsets(all_tracts, all_pop, args["states"])
     agent_ids = get_agent_ids(total_pop, state_offsets)
 
     g = Graphs.newman_watts_strogatz(UInt32(total_pop), args["ave-degree"], args["beta"])
