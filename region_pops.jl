@@ -40,7 +40,7 @@ function region_list_to_pop(regions, region_pops, region_states)
     pop = sum(map(r -> region_pops[r][1], tmp))
     prop = sum(map(r -> region_pops[r][2], tmp))
     states = reduce(vcat, map(r -> region_states[r], tmp))
-    return Dict("pop" => pop, "prop" => prop, "states" => sort(states))
+    return Dict("population" => pop, "proportion of US population" => prop, "geography" => sort(states))
 end
 
 function write_toml(data, filepath)
