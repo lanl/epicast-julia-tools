@@ -78,6 +78,9 @@ function main()
 
     quarter = region_list_to_pop([2,3,4,5], region_pops, region_states)
     write_toml(quarter, "quarter_us.toml")
+
+    eighth = region_list_to_pop([6], region_pops, region_states)
+    write_toml(eighth, "eighth_us.toml")
 end
 
 main()
