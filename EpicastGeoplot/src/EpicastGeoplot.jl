@@ -571,6 +571,7 @@ function make_figure(data::GeoplotData{T}; ofile::AbstractString="",
     style_geo::Function=identity, style_line::Function=identity,
     maxq::Real=quantile_threshold(T), frame::Integer=1, vertical::Bool=false,
     norm::Type{<:AbstractNorm}=ExtremaNorm,
+    cmap::AbstractString="viridis",
     shape::Type{<:AbstractShape}=default_shape(T),
     outline::AbstractGeo=default_outline(T),
     agg_level::Type{<:AbstractGeo}=State, fps::Integer=3,
@@ -584,7 +585,7 @@ function make_figure(data::GeoplotData{T}; ofile::AbstractString="",
                        maxq=maxq, frame=frame,
                        vertical=vertical,
                        norm=norm, shape=shape,
-                       outline=outline,
+                       cmap=cmap, outline=outline,
                        agg_level=agg_level, fps=fps,
                        geo_ids=geo_ids)
 end
@@ -595,6 +596,7 @@ function make_figure(data::GeoplotData{T}, var::AbstractString;
     maxq::Real=quantile_threshold(T), frame::Integer=1,
     vertical::Bool=false,
     norm::Type{<:AbstractNorm}=ExtremaNorm,
+    cmap::AbstractString="viridis",
     shape::Type{<:AbstractShape}=default_shape(T),
     outline::Type{<:AbstractGeo}=default_outline(T),
     agg_level::Type{<:AbstractGeo}=State,
@@ -622,7 +624,7 @@ function make_figure(data::GeoplotData{T}, var::AbstractString;
     end
 
     norm, cm, hp = add_map!(ax[1], data, var, frame, maxq=maxq,
-        norm=norm, shape=shape, outline=outline)
+        norm=norm, shape=shape, outline=outline, cmap=cmap)
     style_geo(ax[1])
 
     mx2, time_idc, _ = add_state_timeseries!(ax[2], data, var, frame, vertical, "",
@@ -689,6 +691,7 @@ function make_figure(data::GeoplotData{T}, var::AbstractString;
 
     if !isempty(ofile)
         if endswith(ofile, ".mp4")
+            print("Saving animation to $ofile")
             anim = animation.FuncAnimation(h, update_figure, frames=IDX:nt)
             anim.save(ofile, fps=fps)
         else
