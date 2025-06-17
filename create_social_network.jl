@@ -169,7 +169,6 @@ function main(args)
     all_pop = all_pop .% UInt32
     total_pop = sum(all_pop) .% UInt32
     state_offsets = get_state_offsets(all_tracts, all_pop, args["states"])
-    return
     agent_ids = get_agent_ids(total_pop, state_offsets)
 
     g = Graphs.newman_watts_strogatz(UInt32(total_pop), args["ave-degree"], args["beta"])
