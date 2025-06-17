@@ -45,11 +45,13 @@ end
 function get_state_offsets(tract_fips::AbstractVector{<:UInt64},
         tract_pops::AbstractVector{T}, states::AbstractVector{<:Int}
         ) where T<:Integer
+    tract_states = fips_state(tract_fips)
     if 0 == length(states)
-        states = unique(fips_state(tract_fips))
+        states = unique(tract_states)
     else
-        states = intersect(states, fips_state(tract_fips))
+        states = intersect(states, tract_states)
     end
+    println(states)
 
     n_states = length(states)
     offsets = zeros(T, n_states, 3)
@@ -58,19 +60,24 @@ function get_state_offsets(tract_fips::AbstractVector{<:UInt64},
     last_state = 0
     state_idx = 0
     state_pop = 0
-    for (state, pop) in zip(states, tract_pops)
+    for (state, pop) in zip(tract_states, tract_pops)
+        if !in(state, states)
+            continue
+        end
         if last_state != state
             state_idx += 1
             state_pop = 0
 
             offsets[state_idx, :] = [state, offset, state_pop]
             last_state = state
+            println("state $state has $state_pop people")
         end
 
         state_pop += pop
         offset += pop
         offsets[state_idx, 3] = state_pop
     end
+    println("state $last_state has $state_pop people")
 
     return offsets
 end
@@ -162,6 +169,7 @@ function main(args)
     all_pop = all_pop .% UInt32
     total_pop = sum(all_pop) .% UInt32
     state_offsets = get_state_offsets(all_tracts, all_pop, args["states"])
+    return
     agent_ids = get_agent_ids(total_pop, state_offsets)
 
     g = Graphs.newman_watts_strogatz(UInt32(total_pop), args["ave-degree"], args["beta"])
