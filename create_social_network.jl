@@ -8,6 +8,8 @@ using UrbanPop
 using Graphs
 using Printf
 
+Id = UInt32
+
 function parse_args(args)
     s = ArgParseSettings()
     @add_arg_table! s begin
@@ -83,7 +85,7 @@ function get_state_offsets(tract_fips::AbstractVector{<:UInt64},
 end
 
 n_state_bits = 6
-state_shift = 32 - n_state_bits
+state_shift = sizeof(Id)*8 - n_state_bits
 @inline function state_node_range(offset::T, pop::T) where T<:Integer
     return range(offset + 1, offset+pop) .% T
 end
@@ -166,12 +168,12 @@ end
 function main(args)
     all_tracts, all_pop = UrbanPop.all_tract_data(args["in-dir"])
     all_tracts = all_tracts .% UInt64
-    all_pop = all_pop .% UInt32
-    total_pop = sum(all_pop) .% UInt32
+    all_pop = all_pop .% Id
+    total_pop = sum(all_pop) .% Id
     state_offsets = get_state_offsets(all_tracts, all_pop, args["states"])
     agent_ids = get_agent_ids(total_pop, state_offsets)
 
-    g = Graphs.newman_watts_strogatz(UInt32(total_pop), args["ave-degree"], args["beta"])
+    g = Graphs.newman_watts_strogatz(Id(total_pop), args["ave-degree"], args["beta"])
     #print_summary(g)
 
     n_states = size(state_offsets)[1]
