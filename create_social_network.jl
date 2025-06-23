@@ -8,7 +8,7 @@ using UrbanPop
 using Graphs
 using Printf
 
-Id = UInt32
+Id = UInt64
 
 function parse_args(args)
     s = ArgParseSettings()
@@ -81,7 +81,7 @@ function get_state_offsets(tract_fips::AbstractVector{<:UInt64},
     end
     println("state $last_state has $state_pop people")
 
-    return offsets
+    return offsets, offset
 end
 
 n_state_bits = 6
@@ -100,8 +100,8 @@ function get_agent_ids(total_pop::T,
         ids[state_node_range(offset, pop)] =
             range(state_start, state_start+pop-1)
 
-        first = ids[offset + 1] .% Int64
-        last = ids[offset+pop] .% Int64
+        first = ids[offset + 1] .% Int128
+        last = ids[offset+pop] .% Int128
         println("state $state has $pop people with ids: [$first, $last]")
     end
 
@@ -170,10 +170,12 @@ function main(args)
     all_tracts = all_tracts .% UInt64
     all_pop = all_pop .% Id
     total_pop = sum(all_pop) .% Id
-    state_offsets = get_state_offsets(all_tracts, all_pop, args["states"])
-    agent_ids = get_agent_ids(total_pop, state_offsets)
+    state_offsets, used_pop = get_state_offsets(all_tracts, all_pop, args["states"])
+    println("Total pop: $total_pop, used pop: $used_pop")
 
-    g = Graphs.newman_watts_strogatz(Id(total_pop), args["ave-degree"], args["beta"])
+    agent_ids = get_agent_ids(used_pop, state_offsets)
+
+    g = Graphs.newman_watts_strogatz(Id(used_pop), args["ave-degree"], args["beta"])
     #print_summary(g)
 
     n_states = size(state_offsets)[1]
