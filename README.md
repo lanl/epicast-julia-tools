@@ -1,5 +1,5 @@
 # epicast-utils
-A collection of Julia packages for wrangeling data related to the [EpiCast](https://gitlab.lanl.gov/palexander/epicast) epidemic simulator.
+A collection of Julia packages for wrangeling data related to the [EpiCast](https://gitlab.lanl.gov/palexander/epicast) epidemic simulator. Released under O4913.
 
 ## UrbanPop
 Utilities for converting UrbanPop data stored as Apache feather files into the EpiCast internal tract and agent DB formats.
