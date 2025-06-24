@@ -8,7 +8,7 @@ using UrbanPop
 using Graphs
 using Printf
 
-Id = UInt64
+Id = UInt32
 
 function parse_args(args)
     s = ArgParseSettings()
@@ -89,6 +89,7 @@ state_shift = sizeof(Id)*8 - n_state_bits
 @inline function state_node_range(offset::T, pop::T) where T<:Integer
     return range(offset + 1, offset+pop) .% T
 end
+@inline id_to_state(id) = id .>> state_shift
 function get_agent_ids(total_pop::T,
         state_offsets::Matrix{T}) where T<:Integer
     ids = Vector{T}(range(1, total_pop))
@@ -148,8 +149,8 @@ end
 
 function write_state(out_file::AbstractString,
         graph::AbstractGraph{T}, state::T,
-        offset::T, n_nodes::T,
-        agent_ids::AbstractVector{T}) where T<:Integer
+        offset::T, n_nodes::T, agent_ids::AbstractVector{T},
+        states::AbstractSet{T}) where T<:Integer
     open(out_file, "w") do stream
         state_nodes = state_node_range(offset, n_nodes)
         edge_offsets = get_edge_offsets(graph, state_nodes)
@@ -161,6 +162,13 @@ function write_state(out_file::AbstractString,
         write(stream, edge_offsets .% T)
 
         dsts = agent_ids[get_dsts(graph, state_nodes)]
+        dst_states = Set(id_to_state(dsts))
+        if states != dst_states
+            extra_states = setdiff(dst_states, states)
+            println("Error: states $extra_states present in output while not selected")
+            exit()
+        end
+
         write(stream, dsts)
     end
 end
@@ -169,9 +177,12 @@ function main(args)
     all_tracts, all_pop = UrbanPop.all_tract_data(args["in-dir"])
     all_tracts = all_tracts .% UInt64
     all_pop = all_pop .% Id
-    total_pop = sum(all_pop) .% Id
+    total_pop = sum(all_pop) % Id
     state_offsets, used_pop = get_state_offsets(all_tracts, all_pop, args["states"])
-    println("Total pop: $total_pop, used pop: $used_pop")
+
+    used_pop = used_pop % Id
+    states = Set(state_offsets[:,1])
+    println("States: $states, total pop: $total_pop, used pop: $used_pop")
 
     agent_ids = get_agent_ids(used_pop, state_offsets)
 
@@ -184,7 +195,7 @@ function main(args)
         (state, offset, pop) = state_offsets[r, :]
         out_file = @sprintf("%02d.social.bin", state)
         write_state("$out_dir/$out_file", g, state, offset,
-                    pop, agent_ids)
+                    pop, agent_ids, states)
     end
 end
 
