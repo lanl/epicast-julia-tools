@@ -8,7 +8,8 @@ using UrbanPop
 using Graphs
 using Printf
 
-Id = UInt32
+AgentId = UInt32
+EdgeId = UInt64
 
 function parse_args(args)
     s = ArgParseSettings()
@@ -85,7 +86,7 @@ function get_state_offsets(tract_fips::AbstractVector{<:UInt64},
 end
 
 n_state_bits = 6
-state_shift = sizeof(Id)*8 - n_state_bits
+state_shift = sizeof(AgentId)*8 - n_state_bits
 @inline function state_node_range(offset::T, pop::T) where T<:Integer
     return range(offset + 1, offset+pop) .% T
 end
@@ -157,9 +158,9 @@ function write_state(out_file::AbstractString,
 
         n_edges = edge_offsets[end]
         println("State $state: Saving $n_edges edges, $n_nodes nodes to $out_file")
-        write(stream, n_edges .% T)
+        write(stream, n_edges .% EdgeId)
         write(stream, n_nodes .% T)
-        write(stream, edge_offsets .% T)
+        write(stream, edge_offsets .% EdgeId)
 
         dsts = agent_ids[get_dsts(graph, state_nodes)]
         dst_states = Set(id_to_state(dsts))
@@ -176,17 +177,17 @@ end
 function main(args)
     all_tracts, all_pop = UrbanPop.all_tract_data(args["in-dir"])
     all_tracts = all_tracts .% UInt64
-    all_pop = all_pop .% Id
-    total_pop = sum(all_pop) % Id
+    all_pop = all_pop .% AgentId
+    total_pop = sum(all_pop) % AgentId
     state_offsets, used_pop = get_state_offsets(all_tracts, all_pop, args["states"])
 
-    used_pop = used_pop % Id
+    used_pop = used_pop % AgentId
     states = Set(state_offsets[:,1])
     println("States: $states, total pop: $total_pop, used pop: $used_pop")
 
     agent_ids = get_agent_ids(used_pop, state_offsets)
 
-    g = Graphs.newman_watts_strogatz(Id(used_pop), args["ave-degree"], args["beta"])
+    g = Graphs.newman_watts_strogatz(AgentId(used_pop), args["ave-degree"], args["beta"])
     #print_summary(g)
 
     n_states = size(state_offsets)[1]
