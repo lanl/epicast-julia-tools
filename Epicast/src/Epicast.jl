@@ -194,7 +194,7 @@ end
 # ============================================================================ #
 function smooth!(d::RunData{G,L,T}, var::AbstractString, n::Integer=7,
     f::Function=mean) where {G,L,T<:AbstractFloat}
-    
+
     EpicastTables.smooth!(d.data, var, n, f)
     return d
 end
@@ -226,7 +226,7 @@ end
 # ---------------------------------------------------------------------------- #
 function diff(d::RunData, vars::AbstractVector{<:AbstractString},
     ::Type{T}=Float64) where T<:SignedType
- 
+
     return diff!(convert_datatype(T, d), vars)
 end
 # ============================================================================ #
@@ -244,7 +244,7 @@ end
 # ============================================================================ #
 function normalize!(d::RunData{G,L,T}, var::AbstractString,
     get_denom::Function=default_denom) where {G,L,T<:AbstractFloat}
-    
+
     d.data[var] ./= reshape(get_denom(d, var), 1, :)
     return d
 end

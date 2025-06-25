@@ -289,7 +289,7 @@ function geoplot_data(::Type{T}, all_data::Epicast.RunData,
     names::AbstractVector{<:AbstractString};
     norms::Dict{String,String}=Dict{String,String}(),
     ) where {T<:AbstractGeo}
-    
+
     data = data_dict(T, all_data, names, norms)
 
     states = Set(all_states(all_data.data))
@@ -471,7 +471,7 @@ function ticks_to_dates(ax, nt::Integer, start_date::AbstractString,
 end
 # ============================================================================ #
 function get_colors(n::Integer)
-    return map(col -> (red(col), green(col), blue(col)), 
+    return map(col -> (red(col), green(col), blue(col)),
         distinguishable_colors(n, [RGB(1,1,1), RGB(0,0,0)],
             dropseed=true)
     )
@@ -567,6 +567,29 @@ function add_state_timeseries!(ax, data::GeoplotData{T}, var::AbstractString,
     return mx2, time_idc, states_use
 end
 # ============================================================================ #
+function make_figure(data::GeoplotData{T}; ofile::AbstractString="",
+    style_geo::Function=identity, style_line::Function=identity,
+    maxq::Real=quantile_threshold(T), frame::Integer=1, vertical::Bool=false,
+    norm::Type{<:AbstractNorm}=ExtremaNorm,
+    cmap::AbstractString="viridis",
+    shape::Type{<:AbstractShape}=default_shape(T),
+    outline::AbstractGeo=default_outline(T),
+    agg_level::Type{<:AbstractGeo}=State, fps::Integer=3,
+    geo_ids::AbstractVector{<:Integer}=Int[]) where T<:AbstractGeo
+
+    var = first(keys(data.data.var_index))
+
+    return make_figure(data, var; ofile=ofile,
+                       style_geo=style_geo,
+                       style_line=style_line,
+                       maxq=maxq, frame=frame,
+                       vertical=vertical,
+                       norm=norm, shape=shape,
+                       cmap=cmap, outline=outline,
+                       agg_level=agg_level, fps=fps,
+                       geo_ids=geo_ids)
+end
+# ---------------------------------------------------------------------------- #
 function make_figure(data::GeoplotData{T}, var::AbstractString;
     ofile::AbstractString="",
     style_geo::Function=identity,
@@ -575,6 +598,7 @@ function make_figure(data::GeoplotData{T}, var::AbstractString;
     frame::Integer=1,
     vertical::Bool=false,
     norm::Type{<:AbstractNorm}=ExtremaNorm,
+    cmap::AbstractString="viridis",
     shape::Type{<:AbstractShape}=default_shape(T),
     outline::Type{<:AbstractGeo}=default_outline(T),
     agg_level::Type{<:AbstractGeo}=State,
@@ -602,10 +626,12 @@ function make_figure(data::GeoplotData{T}, var::AbstractString;
     end
 
     norm, cm, hp = add_map!(ax[1], data, var, frame, maxq=maxq,
-        norm=norm, shape=shape, outline=outline)
+        norm=norm, shape=shape, outline=outline, cmap=cmap)
+    style_geo(ax[1])
 
     mx2, time_idc, _ = add_state_timeseries!(ax[2], data, var, frame, vertical, "",
         typemax(Int), agg_level; geo_ids=geo_ids)
+    style_line(ax[2])
 
     county_line = nothing
 
@@ -616,6 +642,7 @@ function make_figure(data::GeoplotData{T}, var::AbstractString;
         hp.set_facecolors(cm(scale(norm, c)))
         ax[1].set_title("Day " * string(idx-1), fontsize=18)
         time_idc.set_xdata([idx-1, idx-1])
+        style_geo(ax[1])
     end
 
     onscroll(evt) = begin
@@ -650,13 +677,14 @@ function make_figure(data::GeoplotData{T}, var::AbstractString;
                 lab = evt.artist.get_label()
                 ax[2].set_title("State " * lab, fontsize=18)
             end
+            style_line(ax[2])
         end
     end
 
     h.tight_layout()
 
     update_figure(IDX)
-    
+
     if vertical
         h.subplots_adjust(hspace=0)
         bb = ax[1].get_position()
@@ -665,6 +693,7 @@ function make_figure(data::GeoplotData{T}, var::AbstractString;
 
     if !isempty(ofile)
         if endswith(ofile, ".mp4")
+            print("Saving animation to $ofile")
             anim = animation.FuncAnimation(h, update_figure, frames=IDX:nt)
             anim.save(ofile, fps=fps)
         else
