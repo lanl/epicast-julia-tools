@@ -1,7 +1,20 @@
 module EpicastTables
 
+# Copyright (C) 2025. Triad National Security, LLC. All rights reserved.
+# This program was produced under U.S. Government contract 89233218CNA000001
+# for Los Alamos National Laboratory (LANL), which is operated by Triad National
+# Security, LLC for the U.S. Department of Energy/National Nuclear Security
+# Administration. All rights in the program are reserved by Triad National
+# Security, LLC, and the U.S. Department of Energy/National Nuclear Security
+# Administration. The Government is granted for itself and others acting on its
+# behalf a nonexclusive, paid-up, irrevocable worldwide license in this material
+# to reproduce, prepare. derivative works, distribute copies to the public,
+# perform publicly and display publicly, and to permit others to do so.
+
+import Base
+
 export FIPSTable, aggregate_state, aggregate_county, aggregate_tract,
-    all_states, all_counties, all_tracts, filter_vars
+    all_states, all_counties, all_tracts, filter_vars, convert_datatype
 
 export AbstractGeo, BlockGroup, Tract, County, State
 # ============================================================================ #
@@ -47,6 +60,10 @@ function FIPSTable(::Type{G}, data::Array{T,N}, fips::AbstractVector{<:Integer},
     return FIPSTable{G,T,N}(fips_index, var_index, data)
 end
 # ---------------------------------------------------------------------------- #
+function convert_datatype(::Type{T}, f::FIPSTable{G,L,N}) where {T<:Real,G,L,N}
+    return FIPSTable{G,T,N}(f.fips_index, f.var_index, Array{T,N}(f.data))
+end
+# ---------------------------------------------------------------------------- #
 all_fips(tbl::FIPSTable) = collect(keys(tbl.fips_index))
 has_fips(tbl::FIPSTable, fips::Integer) = haskey(tbl.fips_index, fips)
 all_vars(tbl::FIPSTable) = collect(keys(tbl.var_index))
@@ -77,6 +94,25 @@ Base.getindex(tbl::FIPSTable{G,T,3}, fips::Integer) where {T,G} = view(tbl.data,
 Base.getindex(tbl::FIPSTable{G,T,3}, fips::Integer, var::AbstractString) where {T,G} = view(tbl.data, :, tbl.fips_index[fips], tbl.var_index[var])
 Base.getindex(tbl::FIPSTable{G,T,3}, var::AbstractString) where {T,G} = view(tbl.data, :, :, tbl.var_index[var])
 Base.getindex(tbl::FIPSTable{G,T,3}, k::Integer, fips::Integer, var::AbstractString) where {T,G} = tbl.data[k, tbl.fips_index[fips], tbl.var_index[var]]
+
+function Base.getindex(tbl::FIPSTable{G,T,1}, fips::AbstractVector{<:Integer}) where {T,G}
+    idx = Int[tbl.fips_index[x] for x in fips]
+    return view(tbl.data, idx)
+end
+function Base.getindex(tbl::FIPSTable{G,T,2}, fips::AbstractVector{<:Integer}) where {T,G}
+    idx = Int[tbl.fips_index[x] for x in fips]
+    return view(tbl.data, idx, :)
+end
+function Base.getindex(tbl::FIPSTable{G,T,3}, fips::AbstractVector{<:Integer}) where {T,G}
+    idx = Int[tbl.fips_index[x] for x in fips]
+    return view(tbl.data, :, idx, :)
+end
+# ============================================================================ #
+Base.:(==)(a::FIPSTable, b::FIPSTable) = false
+function Base.:(==)(a::FIPSTable{G,T,N}, b::FIPSTable{G,T,N}) where {G<:AbstractGeo,T<:Number,N}
+    return a.data == b.data && a.fips_index == b.fips_index &&
+        a.var_index == b.var_index
+end
 # ============================================================================ #
 geo_conversion(::Type{T}, ::Type{T}) where T = 1
 geo_conversion(::Type{County}, ::Type{State}) = COUNTY2STATE
@@ -92,48 +128,33 @@ geo_conversion(::Type{County}, ::Type{Tract}) = error("Cannot convert counties t
 geo_conversion(::Type{BlockGroup}, ::Type{Tract}) = BG2TRACT
 # ============================================================================ #
 function aggregate!(out::Array{T,3}, k::Integer, tbl::FIPSTable{G,L,3},
-    fips::AbstractVector{<:Integer}, do_avg::Bool) where {T<:Number, G<:AbstractGeo,L<:Number}
+    fips::AbstractVector{<:Integer}, f::Function=sum) where {T<:AbstractFloat,G<:AbstractGeo,L<:Number}
 
-    for x in fips
-        out[:,k,:] .+= tbl[x]
-    end
-    if do_avg
-        out[:,k,:] ./= length(fips)
-    end
+    out[:,k,:] = f(tbl[fips], dims=2)
     return out
 end
 # ---------------------------------------------------------------------------- #
 function aggregate!(out::Array{T,2}, k::Integer, tbl::FIPSTable{G,L,2},
-    fips::AbstractVector{<:Integer}, do_avg::Bool) where {T<:Number, G<:AbstractGeo,L<:Number}
+    fips::AbstractVector{<:Integer}, f::Function=sum) where {T<:AbstractFloat,G<:AbstractGeo,L<:Number}
 
-    for x in fips
-        out[k,:] .+= tbl[x]
-    end
-    if do_avg
-        out[k,:] ./= length(fips)
-    end
+    out[k,:] = f(tbl[fips], dims=1)
     return out
 end
 # ---------------------------------------------------------------------------- #
 function aggregate!(out::Array{T,1}, k::Integer, tbl::FIPSTable{G,L,1},
-    fips::AbstractVector{<:Integer}, do_avg::Bool) where {T<:Number, G<:AbstractGeo,L<:Number}
+    fips::AbstractVector{<:Integer}, f::Function=sum) where {T<:AbstractFloat,G<:AbstractGeo,L<:Number}
 
-    for x in fips
-        out[k] += tbl[x]
-    end
-    if do_avg
-        out[k] /= length(fips)
-    end
+    out[k] = f(tbl[fips])
     return out
 end
 # ---------------------------------------------------------------------------- #
 # aggregate needs to always return a float64 table
-function aggregate(::Type{G}, tbl::FIPSTable{G,T,N}, ::Bool) where {G<:AbstractGeo,T,N}    
+function aggregate(::Type{G}, tbl::FIPSTable{G,T,N}, ::Function) where {G<:AbstractGeo,T,N}    
     return FIPSTable{G,Float64,N}(tbl.fips_index, tbl.var_index,
         Array{Float64,N}(tbl.data))
 end
 # ---------------------------------------------------------------------------- #
-function aggregate(::Type{Go}, tbl::FIPSTable{Gi,T,N}, do_avg::Bool) where {Go,Gi,T,N}
+function aggregate(::Type{Go}, tbl::FIPSTable{Gi,T,N}, f::Function=sum) where {Go,Gi,T,N}
     conv = geo_conversion(Gi, Go)
     
     fips = all_fips(tbl)
@@ -144,11 +165,11 @@ function aggregate(::Type{Go}, tbl::FIPSTable{Gi,T,N}, do_avg::Bool) where {Go,G
     idx = N == 3 ? 2 : 1
     siz[idx] = length(unique_grps)
 
-    data = zeros(Float64, siz...)
+    data = Array{Float64,N}(undef, siz...)
 
     for k in eachindex(unique_grps)
         idx = findall(isequal(unique_grps[k]), fips_conv)
-        aggregate!(data, k, tbl, fips[idx], do_avg)
+        aggregate!(data, k, tbl, fips[idx], f)
     end
 
     fips_idx = Dict{UInt64,Int}(x => k for (k,x) in enumerate(unique_grps))
@@ -156,9 +177,9 @@ function aggregate(::Type{Go}, tbl::FIPSTable{Gi,T,N}, do_avg::Bool) where {Go,G
     return FIPSTable{Go,Float64,N}(fips_idx, tbl.var_index, data)
 end
 # ============================================================================ #
-aggregate_state(tbl::FIPSTable, avg::Bool) = aggregate(State, tbl, avg)
-aggregate_county(tbl::FIPSTable, avg::Bool) = aggregate(County, tbl, avg)
-aggregate_tract(tbl::FIPSTable, avg::Bool) = aggregate(Tract, tbl, avg)
+aggregate_state(tbl::FIPSTable, f::Function=sum) = aggregate(State, tbl, f)
+aggregate_county(tbl::FIPSTable, f::Function=sum) = aggregate(County, tbl, f)
+aggregate_tract(tbl::FIPSTable, f::Function=sum) = aggregate(Tract, tbl, f)
 # ============================================================================ #
 function all_geo(::Type{T}, tbl::FIPSTable{G}) where {G,T<:AbstractGeo}
     return sort!(unique(div.(all_fips(tbl), geo_conversion(G, T))))
@@ -166,5 +187,19 @@ end
 all_states(tbl::FIPSTable) = all_geo(State, tbl)
 all_counties(tbl::FIPSTable) = all_geo(County, tbl)
 all_tracts(tbl::FIPSTable) = all_geo(Tract, tbl)
+# ============================================================================ #
+function smooth!(tbl::FIPSTable{G,T,3}, var::AbstractString, n::Integer=7,
+    f::Function=mean) where {G,T<:AbstractFloat}
+
+    tmp = zeros(T, size(tbl.data, 1))
+    for col in eachcol(tbl[var])
+        tmp .= col
+        for k in 2:length(col)
+            ks = max(1, k-n)
+            col[k] = f(col[ks:k])
+        end
+    end
+    return tbl
+end
 # ============================================================================ #
 end # module EpicastTables

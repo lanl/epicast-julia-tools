@@ -1,8 +1,19 @@
 module NYTCovidData
 
-using CSV, Dates, Random
+# Copyright (C) 2025. Triad National Security, LLC. All rights reserved.
+# This program was produced under U.S. Government contract 89233218CNA000001
+# for Los Alamos National Laboratory (LANL), which is operated by Triad National
+# Security, LLC for the U.S. Department of Energy/National Nuclear Security
+# Administration. All rights in the program are reserved by Triad National
+# Security, LLC, and the U.S. Department of Energy/National Nuclear Security
+# Administration. The Government is granted for itself and others acting on its
+# behalf a nonexclusive, paid-up, irrevocable worldwide license in this material
+# to reproduce, prepare. derivative works, distribute copies to the public,
+# perform publicly and display publicly, and to permit others to do so.
 
-using UrbanPop
+using CSV, Dates, Random, Statistics
+
+using UrbanPop, EpicastTables
 
 # ============================================================================ #
 # up_dir = "/Users/palexander/Documents/emerge+radium/input-data/agent_db"
@@ -265,6 +276,59 @@ function read_covid_data(ifile::AbstractString)
         return data, county_fips, date
     end
 
+end
+# ============================================================================ #
+function to_fips_table(data::AbstractMatrix, counties::AbstractVector{<:Integer},
+    agg::Bool=false, smooth::Bool=false)
+
+    tmp = permutedims(getfield.(data, :cases), (2,1))
+
+    cnty = FIPSTable(County,
+        Array{Float64,3}(reshape(tmp, size(tmp,1), size(tmp,2), 1)),
+        counties,
+        ["total"]
+    )
+
+    if agg
+        out = aggregate_state(cnty)
+    else
+        out = cnty
+    end
+
+    if smooth
+        smooth_timeseries!(view(out.data, :, :, 1); dims=1)
+    end
+
+    out.data[2:end,:,1] .= diff(view(out.data, :, :, 1), dims=1)
+
+    replace!(x -> x < 0.0 ? 0.0 : x, out.data)
+
+    return out
+end
+# ============================================================================ #
+function smooth_timeseries!(data::AbstractVector{T}) where T<:Real
+    out = zeros(T, length(data))
+    smooth_timeseries!(out, data)
+    data .= out
+    return data
+end
+# ---------------------------------------------------------------------------- #
+function smooth_timeseries!(out::AbstractVector{<:AbstractFloat}, data::AbstractVector{<:Real})
+    out[1] = data[1]
+    for k = 2:length(data)
+        ks = max(k-7, 1)
+        out[k] = mean(data[ks:k])
+    end
+    return out
+end
+# ---------------------------------------------------------------------------- #
+function smooth_timeseries!(data::AbstractMatrix{T}; dims::Integer=1) where T<:AbstractFloat
+    tmp = zeros(T, size(data, dims))
+    for slice in eachslice(data, dims=(3-dims))
+        smooth_timeseries!(tmp, slice)
+        slice .= tmp
+    end
+    return data
 end
 # ============================================================================ #
 end
