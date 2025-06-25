@@ -408,7 +408,7 @@ function person_school_grade(x::AbstractString)
     elseif x == "grad"
         out = 0x10 # 16
     else
-        error("Invalid grate: \"$(x)\"")
+        error("Invalid grade: \"$(x)\"")
     end
     return out
 end

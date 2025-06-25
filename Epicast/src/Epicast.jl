@@ -515,12 +515,12 @@ total_cases(x::AbstractMatrix{<:Real}) = dropdims(sum(x, dims=2),dims=2)
 # ============================================================================ #
 function new_cases(x::AbstractMatrix{<:Real}, f::Function=sum)
     out = dropdims(f(x, dims=2),dims=2)
-    out[2:end] .= diff(out)
+    out[2:end] .= Base.diff(out)
     return out
 end
 function new_cases(x::AbstractVector{<:Real}, f::Function=sum)
     out = copy(x)
-    out[2:end] .= diff(out)
+    out[2:end] .= Base.diff(out)
     return out
 end
 mean_new_cases(x) = new_cases(x, mean)

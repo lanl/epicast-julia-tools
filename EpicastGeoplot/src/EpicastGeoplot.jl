@@ -485,7 +485,7 @@ function add_state_timeseries!(ax, data::GeoplotData{T}, var::AbstractString,
     frame::Integer=1, vertical::Bool=false, start_date::AbstractString="",
     top::Integer=typemax(Int), AT::Type{<:AbstractGeo}=State;
     geo_ids::AbstractVector=[], title::AbstractString="",
-    ylab::AbstractString="Proportion of agents newly infected",
+    ylab::AbstractString="New infectiond per 100k residents",
     legend_kws=DEFAULT_LEGEND, ymax::Real=NaN, gap::Real=0) where T<:AbstractGeo
 
     # if data are already normalized (cases-per-100k) then simply averaging
@@ -567,36 +567,18 @@ function add_state_timeseries!(ax, data::GeoplotData{T}, var::AbstractString,
     return mx2, time_idc, states_use
 end
 # ============================================================================ #
-function make_figure(data::GeoplotData{T}; ofile::AbstractString="",
-    style_geo::Function=identity, style_line::Function=identity,
-    maxq::Real=quantile_threshold(T), frame::Integer=1, vertical::Bool=false,
-    norm::Type{<:AbstractNorm}=ExtremaNorm,
-    shape::Type{<:AbstractShape}=default_shape(T),
-    outline::AbstractGeo=default_outline(T),
-    agg_level::Type{<:AbstractGeo}=State, fps::Integer=3) where T<:AbstractGeo
-
-    var = first(keys(data.data.var_index))
-
-    return make_figure(data, var, ofile=ofile,
-                       style_geo=style_geo,
-                       style_line=style_line,
-                       maxq=maxq, frame=frame,
-                       vertical=vertical,
-                       norm=norm, shape=shape,
-                       outline=outline,
-                       agg_level=agg_level, fps=fps)
-end
-# ---------------------------------------------------------------------------- #
 function make_figure(data::GeoplotData{T}, var::AbstractString;
-    ofile::AbstractString="", style_geo::Function=identity,
+    ofile::AbstractString="",
+    style_geo::Function=identity,
     style_line::Function=identity,
-    maxq::Real=quantile_threshold(T), frame::Integer=1,
+    maxq::Real=quantile_threshold(T),
+    frame::Integer=1,
     vertical::Bool=false,
     norm::Type{<:AbstractNorm}=ExtremaNorm,
     shape::Type{<:AbstractShape}=default_shape(T),
     outline::Type{<:AbstractGeo}=default_outline(T),
     agg_level::Type{<:AbstractGeo}=State,
-    geo_ids::AbstractVector{<:Integer}=[], fps::Integer=3) where T<:AbstractGeo
+    geo_ids::AbstractVector{<:Integer}=Int[], fps::Integer=3) where T<:AbstractGeo
 
     nt = n_timepoint(data)
 
