@@ -120,7 +120,7 @@ function get_edge_offsets(graph::AbstractGraph{T},
         nodes::AbstractVector{T}) where T<:Integer
     degrees = Graphs.degree(graph, nodes)
     person_edge_offsets = cumsum(degrees) - degrees
-    append!(person_edge_offsets, sum(degrees) .% T)
+    append!(person_edge_offsets, sum(degrees) .% EdgeId)
     return person_edge_offsets
 end
 
