@@ -85,6 +85,19 @@ function get_state_offsets(tract_fips::AbstractVector{<:UInt64},
     return offsets, offset
 end
 
+function get_state_offsets(in_dir::AbstractString, states::AbstractVector{<:Integer})
+    all_tracts, all_pop = UrbanPop.all_tract_data(in_dir)
+    all_tracts = all_tracts .% UInt64
+    all_pop = all_pop .% AgentId
+    total_pop = sum(all_pop) % AgentId
+    state_offsets, used_pop = get_state_offsets(all_tracts, all_pop, states)
+    
+    used_pop = used_pop % AgentId
+    println("States: $states, total pop: $total_pop, used pop: $used_pop")
+
+    return state_offsets, used_pop
+end
+
 n_state_bits = 6
 state_shift = sizeof(AgentId)*8 - n_state_bits
 @inline function state_node_range(offset::T, pop::T) where T<:Integer
@@ -136,18 +149,6 @@ function print_summary(graph::AbstractGraph{T}) where T<:Integer
     println("Generated $g_type with $ne edges, $nv nodes")
 end
 
-function write_header!(out_stream::IOStream,
-        graph::AbstractGraph{T},
-        all_pops::AbstractVector{<:UInt64}) where T<:Integer
-    ne = Graphs.ne(graph)
-    nv = Graphs.nv(graph)
-    write(out_stream, ne .% T)
-    write(out_stream, nv .% T)
-
-    offsets = get_edge_offsets(graph)
-    write(out_stream, offsets .% T)
-end
-
 function write_state(out_file::AbstractString,
         graph::AbstractGraph{T}, state::T,
         offset::T, n_nodes::T, agent_ids::AbstractVector{T},
@@ -174,30 +175,29 @@ function write_state(out_file::AbstractString,
     end
 end
 
-function main(args)
-    all_tracts, all_pop = UrbanPop.all_tract_data(args["in-dir"])
-    all_tracts = all_tracts .% UInt64
-    all_pop = all_pop .% AgentId
-    total_pop = sum(all_pop) % AgentId
-    state_offsets, used_pop = get_state_offsets(all_tracts, all_pop, args["states"])
+function write_social_network(out_dir::AbstractString,
+    graph::AbstractGraph{T}, state_offsets::AbstractMatrix{T}
+    ) where T<:Integer
 
-    used_pop = used_pop % AgentId
-    states = Set(state_offsets[:,1])
-    println("States: $states, total pop: $total_pop, used pop: $used_pop")
-
+    used_pop = Graphs.nv(graph) .% T
     agent_ids = get_agent_ids(used_pop, state_offsets)
+    n_states = size(state_offsets)[1]
+    states = Set(state_offsets[:,1])
+    for r in range(1, n_states)
+        (state, offset, pop) = state_offsets[r, :]
+        out_file = @sprintf("%02d.social.bin", state)
+        write_state("$out_dir/$out_file", graph, state, offset,
+                    pop, agent_ids, states)
+    end
+end
+
+function main(args)
+    state_offsets, used_pop = get_state_offsets(args["in-dir"], args["states"])
 
     g = Graphs.newman_watts_strogatz(AgentId(used_pop), args["ave-degree"], args["beta"])
     #print_summary(g)
 
-    n_states = size(state_offsets)[1]
-    out_dir = args["out-dir"]
-    for r in range(1, n_states)
-        (state, offset, pop) = state_offsets[r, :]
-        out_file = @sprintf("%02d.social.bin", state)
-        write_state("$out_dir/$out_file", g, state, offset,
-                    pop, agent_ids, states)
-    end
+    write_social_network(args["out-dir"], g, state_offsets)
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__
