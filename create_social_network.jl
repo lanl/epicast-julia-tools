@@ -225,9 +225,134 @@ function read_person_friends(in_path::AbstractString, local_idx::Integer)
     return friends
 end
 # ============================================================================ #
+function path_to_state(path::AbstractString)
+    return parse(Int32, basename(path)[1:2])
+end
+# ============================================================================ #
+#struct Person
+#    id::AgentId
+#    edge_offset::EdgeId
+#    n_edges::AgentId
+#end
+mutable struct StateNetwork
+    people_offsets::Array{EdgeId,1}
+    edges::Array{AgentId,1}
+    n_edges::EdgeId
+    n_nodes::AgentId
+    node_offset::AgentId
+    fips_code::Int8
+end
+# ---------------------------------------------------------------------------- #
+function global_to_local(s::StateNetwork, global_idx::Integer)
+    return global_idx % AgentId - s.node_offset + 1
+end
+# ---------------------------------------------------------------------------- #
+function Base.getindex(s::StateNetwork, global_idx::Integer)
+    local_idx = global_to_local(s, global_idx)
+    
+    start = s.people_offsets[local_idx] + 1
+    stop = s.people_offsets[local_idx + 1] + 1
+
+    return s.edges[start:stop]
+end
+# ---------------------------------------------------------------------------- #
+function read_state_network_header(in_path::AbstractString)
+    n_edges, n_nodes = read_header(in_path)
+    
+    return StateNetwork(
+        zeros(EdgeId, n_nodes + 1),
+        zeros(AgentId, n_edges),
+        n_edges,
+        n_nodes,
+        0,
+        path_to_state(in_path)
+    )
+end
+# ---------------------------------------------------------------------------- #
+function read_offsets!(this::StateNetwork, in_path::AbstractString)
+    open(in_path, "r") do stream
+        seek(stream, HEADER_LENGTH)
+        read!(stream, this.people_offsets)
+    end
+end
+# ---------------------------------------------------------------------------- #
+function read_edges!(this::StateNetwork, in_path::AbstractString)
+    open(in_path, "r") do stream
+        seek(stream, HEADER_LENGTH + (this.n_nodes + 1) * sizeof(EdgeId))
+        read!(stream, this.edges)
+    end
+end
+# ---------------------------------------------------------------------------- #
+function read_state_network(this::StateNetwork, in_path::AbstractString)
+    read_offsets!(this, in_path)
+    read_edges!(this, in_path)
+end
+# ---------------------------------------------------------------------------- #
+function read_state_network(in_path::AbstractString; header_only::Bool=false)
+    this = read_state_network_header(in_path)
+
+    if !header_only
+        read_state_network!(this, in_path)
+    end
+
+    return this
+end
+# ============================================================================ #
+mutable struct SocialNetwork
+    states::Vector{StateNetwork}
+    state_indices::Dict{Int8,UInt8}
+    n_edges::EdgeId
+    n_nodes::AgentId
+end
+# ---------------------------------------------------------------------------- #
+function Base.getindex(this::SocialNetwork, state::Int8)
+    return this.states[this.state_indices[state]]
+end
+# ---------------------------------------------------------------------------- #
+function Base.getindex(this::SocialNetwork, states::AbstractVector{Int8})
+    return this.states[this.state_indices[states]]
+end
+# ---------------------------------------------------------------------------- #
+function convert_to_global!(this::SocialNetwork, state::StateNetwork)
+    state_offsets = Dict(k => g.states[i].node_offset for (k, i) in g.state_indices)
+    state_ids = id_to_state(state.edges) .% Int8
+    state.edges = id_to_local_idx(state.edges)
+        + getindex.(Ref(state_offsets), state_ids)
+end
+# ---------------------------------------------------------------------------- #
+function read_social_network(in_dir::AbstractString;
+    states::AbstractVector{<:Integer}=Vector{Int8}(), header_only::Bool=false)
+    files = readdir(in_dir, join=true)
+    files = filter(f -> occursin(r"\d\d\.social\.bin", f), files)
+    if length(states) > 0
+        states = Set(states)
+        files = filter(f -> path_to_state(f) in states, files)
+    end
+
+    states = map(f -> read_state_network(f; header_only=header_only), files)
+    state_indices = Dict(states[i].fips_code => i for i in 1:length(states))
+    
+    node_offset = 0
+    for s in states
+        s.node_offset = node_offset
+        node_offset += s.n_nodes
+    end
+
+    n_edges = sum(map(s -> s.n_edges, values(states)))
+    n_nodes = sum(map(s -> s.n_nodes, values(states)))
+    this = SocialNetwork(states, state_indices, n_edges, n_nodes)
+
+    if !header_only
+        for s in states
+            convert_to_global!(this, s)
+        end
+    end
+
+    return this
+end
+# ============================================================================ #
 function main(args)
     state_offsets, used_pop = get_state_offsets(args["in-dir"], args["states"])
-
     g = Graphs.newman_watts_strogatz(AgentId(used_pop), args["ave-degree"], args["beta"])
     #print_summary(g)
 
