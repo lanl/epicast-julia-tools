@@ -11,6 +11,7 @@ using Printf
 AgentId = UInt32
 EdgeId = UInt64
 
+# ============================================================================ #
 function parse_args(args)
     s = ArgParseSettings()
     @add_arg_table! s begin
@@ -43,8 +44,9 @@ function parse_args(args)
 
     return args
 end
-
+# ============================================================================ #
 @inline fips_state(x) = floor.(Int, x ./ 1e9)
+# ---------------------------------------------------------------------------- #
 function get_state_offsets(tract_fips::AbstractVector{<:UInt64},
         tract_pops::AbstractVector{T}, states::AbstractVector{<:Int}
         ) where T<:Integer
@@ -84,7 +86,7 @@ function get_state_offsets(tract_fips::AbstractVector{<:UInt64},
 
     return offsets, offset
 end
-
+# ---------------------------------------------------------------------------- #
 function get_state_offsets(in_dir::AbstractString, states::AbstractVector{<:Integer})
     all_tracts, all_pop = UrbanPop.all_tract_data(in_dir)
     all_tracts = all_tracts .% UInt64
@@ -97,13 +99,15 @@ function get_state_offsets(in_dir::AbstractString, states::AbstractVector{<:Inte
 
     return state_offsets, used_pop
 end
-
+# ============================================================================ #
 n_state_bits = 6
 state_shift = sizeof(AgentId)*8 - n_state_bits
 @inline function state_node_range(offset::T, pop::T) where T<:Integer
     return range(offset + 1, offset+pop) .% T
 end
+# ---------------------------------------------------------------------------- #
 @inline id_to_state(id) = id .>> state_shift
+# ---------------------------------------------------------------------------- #
 function get_agent_ids(total_pop::T,
         state_offsets::Matrix{T}) where T<:Integer
     ids = Vector{T}(range(1, total_pop))
@@ -122,13 +126,13 @@ function get_agent_ids(total_pop::T,
 
     return ids
 end
-
+# ============================================================================ #
 function get_edgelist(graph::AbstractGraph{T}) where T<:Integer
     return reduce(hcat, [[Graphs.src(e) .% T,
                           Graphs.dst(e) .% T]
                          for e in Graphs.edges(graph)])
 end
-
+# ---------------------------------------------------------------------------- #
 function get_edge_offsets(graph::AbstractGraph{T},
         nodes::AbstractVector{T}) where T<:Integer
     degrees = Graphs.degree(graph, nodes)
@@ -136,19 +140,19 @@ function get_edge_offsets(graph::AbstractGraph{T},
     append!(person_edge_offsets, sum(degrees) .% EdgeId)
     return person_edge_offsets
 end
-
+# ============================================================================ #
 function get_dsts(graph::AbstractGraph{T},
         nodes::AbstractVector{T}) where T<:Integer
     return reduce(vcat, Graphs.SimpleGraphs.adj(graph)[nodes])
 end
-
+# ============================================================================ #
 function print_summary(graph::AbstractGraph{T}) where T<:Integer
     g_type = summary(graph)
     ne = Graphs.ne(graph)
     nv = Graphs.nv(graph)
     println("Generated $g_type with $ne edges, $nv nodes")
 end
-
+# ============================================================================ #
 function write_state(out_file::AbstractString,
         graph::AbstractGraph{T}, state::T,
         offset::T, n_nodes::T, agent_ids::AbstractVector{T},
@@ -174,7 +178,7 @@ function write_state(out_file::AbstractString,
         write(stream, dsts)
     end
 end
-
+# ---------------------------------------------------------------------------- #
 function write_social_network(out_dir::AbstractString,
     graph::AbstractGraph{T}, state_offsets::AbstractMatrix{T}
     ) where T<:Integer
@@ -190,7 +194,7 @@ function write_social_network(out_dir::AbstractString,
                     pop, agent_ids, states)
     end
 end
-
+# ============================================================================ #
 function main(args)
     state_offsets, used_pop = get_state_offsets(args["in-dir"], args["states"])
 
@@ -199,7 +203,7 @@ function main(args)
 
     write_social_network(args["out-dir"], g, state_offsets)
 end
-
+# ---------------------------------------------------------------------------- #
 if abspath(PROGRAM_FILE) == @__FILE__
     main(parse_args(ARGS))
 end
