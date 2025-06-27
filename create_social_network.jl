@@ -108,6 +108,8 @@ end
 # ---------------------------------------------------------------------------- #
 @inline id_to_state(id) = id .>> state_shift
 # ---------------------------------------------------------------------------- #
+@inline id_to_local_idx(id) = id .- (id_to_state(id) .<< state_shift)
+# ---------------------------------------------------------------------------- #
 function get_agent_ids(total_pop::T,
         state_offsets::Matrix{T}) where T<:Integer
     ids = Vector{T}(range(1, total_pop))
@@ -193,6 +195,34 @@ function write_social_network(out_dir::AbstractString,
         write_state("$out_dir/$out_file", graph, state, offset,
                     pop, agent_ids, states)
     end
+end
+# ============================================================================ #
+HEADER_LENGTH = sizeof(EdgeId) + sizeof(AgentId)
+# ----------------------------------------------------------------------------  #
+function read_header(in_path::AbstractString)
+    n_edges, n_nodes = (0, 0)
+    open(in_path, "r") do stream
+        n_edges = read(stream, EdgeId)
+        n_nodes = read(stream, AgentId)
+    end
+    return n_edges, n_nodes
+end
+# ---------------------------------------------------------------------------- #
+function read_person_friends(in_path::AbstractString, local_idx::Integer)
+    n_edges, n_nodes = read_header(in_path)
+    friends = nothing
+    open(in_path, "r") do stream
+        seek(stream, HEADER_LENGTH + local_idx * sizeof(EdgeId))
+        start_offset = read(stream, EdgeId)
+        end_offset = read(stream, EdgeId)
+
+        friends = zeros(AgentId, end_offset - start_offset)
+        seek(stream, HEADER_LENGTH + (n_nodes + 1) * sizeof(EdgeId)
+            + start_offset * sizeof(AgentId))
+        read!(stream, friends)
+    end
+
+    return friends
 end
 # ============================================================================ #
 function main(args)
