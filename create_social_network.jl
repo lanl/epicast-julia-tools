@@ -283,7 +283,7 @@ function read_edges!(this::StateNetwork, in_path::AbstractString)
     end
 end
 # ---------------------------------------------------------------------------- #
-function read_state_network(this::StateNetwork, in_path::AbstractString)
+function read_state_network!(this::StateNetwork, in_path::AbstractString)
     read_offsets!(this, in_path)
     read_edges!(this, in_path)
 end
@@ -314,10 +314,10 @@ function Base.getindex(this::SocialNetwork, states::AbstractVector{Int8})
 end
 # ---------------------------------------------------------------------------- #
 function convert_to_global!(this::SocialNetwork, state::StateNetwork)
-    state_offsets = Dict(k => g.states[i].node_offset for (k, i) in g.state_indices)
+    state_offsets = Dict(k => this.states[i].node_offset for (k, i) in this.state_indices)
     state_ids = id_to_state(state.edges) .% Int8
-    state.edges = id_to_local_idx(state.edges)
-        + getindex.(Ref(state_offsets), state_ids)
+    edge_offsets = getindex.(Ref(state_offsets), state_ids)
+    state.edges = id_to_local_idx(state.edges) + edge_offsets
 end
 # ---------------------------------------------------------------------------- #
 function read_social_network(in_dir::AbstractString;
