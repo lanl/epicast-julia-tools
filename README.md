@@ -1,6 +1,22 @@
 # epicast-julia-tools
 A collection of Julia packages for wrangeling data related to the [EpiCast](https://arxiv.org/abs/2504.03604) epidemic simulator.
 
+## Install
+
+A smoother installation expierence is stil a wip. For now you need to install each sub-module that you would like to use *AFTER* installing it's dependencies. For an example:
+
+```julia
+import Pkg
+
+# just install everything into the current env
+all_submodules = ["EpicastTables", "Epicast", "EpicastPlot", "EpicastGeoplot",
+    "PlotHelpers"]
+
+for submod in all_submodules
+    Pkg.add("https://github.com/lanl/epicast-julia-tools:" * submod)
+end
+```
+
 ## Sub-modules
 
 ### EpicastTables
