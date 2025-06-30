@@ -3,7 +3,7 @@ A collection of Julia packages for wrangeling data related to the [EpiCast](http
 
 ## Install
 
-A smoother installation expierence is stil a wip. For now you need to install each sub-module that you would like to use *AFTER* installing it's dependencies. For an example:
+A smoother installation expierence is stil a wip. For now you need to install each sub-module that you would like to use *AFTER* installing it's dependencies. For example:
 
 ```julia
 import Pkg
