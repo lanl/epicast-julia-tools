@@ -1,0 +1,4 @@
+EpicastGeoplot/geo-data/
+*.log
+**/Manifest.toml
+.DS_Store
