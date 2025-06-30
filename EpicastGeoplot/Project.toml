@@ -20,6 +20,8 @@ Tar = "a4e569a6-e804-4fa4-b0f3-eef7a1d5b13e"
 [compat]
 Colors = "0.13.1"
 Dates = "1.11.0"
+Epicast = "0.1.0"
+EpicastTables = "0.1.0"
 Inflate = "0.1.5"
 LibGit2 = "1.11.0"
 Printf = "1.11.0"

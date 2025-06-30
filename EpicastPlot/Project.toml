@@ -11,4 +11,6 @@ PyPlot = "d330b81b-6aea-500a-939a-2ce795aea3ee"
 
 [compat]
 Colors = "0.13.1"
+Epicast = "0.1.0"
+EpicastTables = "0.1.0"
 PyPlot = "2.11.6"
