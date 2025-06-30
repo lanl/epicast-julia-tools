@@ -33,7 +33,7 @@ Basic plotting of timeseries data.
 
 ### PlotHelpers
 
-Basic plotting helper function that are occationally useful. Function provided herein are not specific to Epicast or used by other modules in this repository, but are useful for constructing more complex figures such as those appearing in recent Epicast-related publications.
+Basic plotting helper functions that are occationally useful. The functions provided herein are not specific to Epicast or used by other modules in this repository, but they are useful for constructing more complex figures such as those appearing in recent Epicast-related publications (e.g., [the Epicast 2.0 paper](https://arxiv.org/abs/2504.03604)).
 
 ### EpicastGeoplot
 
