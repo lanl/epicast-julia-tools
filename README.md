@@ -8,9 +8,15 @@ A smoother installation expierence is stil a wip. For now you need to install ea
 ```julia
 import Pkg
 
-# just install everything into the current env
-all_submodules = ["EpicastTables", "Epicast", "EpicastPlot", "EpicastGeoplot",
-    "PlotHelpers"]
+# NOTE: this installs everything into the current env, activate a new project
+# etc. as you like before installing
+all_submodules = [
+    "EpicastTables",  # required by Epicast, EpicastPlot, EpicastGeoplot
+    "Epicast",        # required by EpicastPlot, EpicastGeoplot
+    "EpicastPlot",    # optional
+    "EpicastGeoplot", # optional, but very useful for map visualizations
+    "PlotHelpers"     # optional
+]
 
 for submod in all_submodules
     Pkg.add(url="https://github.com/lanl/epicast-julia-tools", subdir=submod)
@@ -25,11 +31,11 @@ Basic table-like data structure for storing `time x location x variable` count d
 
 ### Epicast
 
-Basic I/O and preprocessing routines for data in either count or event format.
+Basic I/O and preprocessing routines for data in either count or event format. Requires `EpicastTables`.
 
 ### EpicastPlot
 
-Basic plotting of timeseries data.
+Basic plotting of timeseries data. Requires `Epicast` and `EpicastTables`.
 
 ### PlotHelpers
 
@@ -37,7 +43,7 @@ Basic plotting helper functions that are occationally useful. The functions prov
 
 ### EpicastGeoplot
 
-More feature-rich plotting of timeseries and geographic (i.e., map) data.
+More feature-rich plotting of timeseries and geographic (i.e., map) data. Requires `Epicast` and `EpicastTables`.
 
 ## Example usage
 ```julia
