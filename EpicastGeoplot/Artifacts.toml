@@ -1,0 +1,6 @@
+[us_shapefiles]
+git-tree-sha1 = "61dbaba35a475d5e6d04b459bfc3617c4d334bd3"
+
+    [[us_shapefiles.download]]
+    url = "https://zenodo.org/records/15786011/files/us_shapefiles.tar.gz"
+    sha256 = "2112bddcdff1b0bec606a8e524a4d7cf89dfdb7047cdef75b88550499c3a3957"

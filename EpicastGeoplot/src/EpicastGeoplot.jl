@@ -1,6 +1,6 @@
 module EpicastGeoplot
 
-using Shapefile, PyPlot, Colors, Printf, Statistics, Dates
+using Shapefile, PyPlot, Colors, Printf, Statistics, Dates, Pkg.Artifacts
 
 import EpicastTables
 
@@ -18,7 +18,7 @@ function __init__()
     copy!(animation, pyimport("matplotlib.animation"))
 end
 
-const DATADIR = joinpath(@__DIR__, "..", "geo-data", "assets")
+const DATADIR = artifact"us_shapefiles"#joinpath(@__DIR__, "..", "geo-data", "assets")
 
 const STATE_OUTLINE_WIDTH = 0.5
 # ============================================================================ #
