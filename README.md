@@ -13,11 +13,8 @@ all_submodules = ["EpicastTables", "Epicast", "EpicastPlot", "EpicastGeoplot",
     "PlotHelpers"]
 
 for submod in all_submodules
-    Pkg.add("https://github.com/lanl/epicast-julia-tools:" * submod)
+    Pkg.add(url="https://github.com/lanl/epicast-julia-tools", subdir=submod)
 end
-
-# allow EpicastGeoplot to download and unpack it's required data
-Pkg.build()
 ```
 
 ## Sub-modules
