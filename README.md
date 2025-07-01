@@ -1,5 +1,5 @@
 # epicast-julia-tools
-A collection of Julia packages for wrangeling data related to the [EpiCast](https://arxiv.org/abs/2504.03604) epidemic simulator.
+A collection of Julia packages for wrangeling data related to the [Epicast](https://arxiv.org/abs/2504.03604) epidemic simulator.
 
 ## Install
 
