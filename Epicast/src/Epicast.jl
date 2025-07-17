@@ -510,6 +510,105 @@ function read_rundata(ifile::AbstractString, ::Type{T}=UInt32) where T<:Integer
         read_runfile(ifile, T)
 end
 # ============================================================================ #
+@inline qstr(x::AbstractString) = "\"" * x * "\""
+# ============================================================================ #
+function write_csv(x::FIPSTable{G,T,2}, ofile::AbstractString) where {G,T}
+    all_vars = sort(EpicastTables.all_vars(x))
+    open(ofile, "w") do io
+        println(io, "\"fips\",", join(map(qstr, all_vars),","))
+        for fips in sort(EpicastTables.all_fips(x))
+            print(io, fips, ',')
+            for var in all_vars[1:end-1]
+                print(io, x[fips, var], ',')
+            end
+            println(io, x[fips,all_vars[end]])
+        end
+    end
+end
+# ============================================================================ #
+function get_state_transition_map()
+    return Dict{UInt8,String}(
+        0x00 => "recovered",
+        0x01 => "exposed",
+        0x02 => "symptomatic",
+        0x03 => "asymptomatic",
+        0x07 => "presymptomatic"
+    )
+end
+# ============================================================================ #
+function get_ctx_transition_map()
+    return Dict{UInt8,String}(
+        0x00 => "ctx_household",
+        0x01 => "ctx_playgroup",
+        0x02 => "ctx_daycare",
+        0x03 => "ctx_school",
+        0x04 => "ctx_work",
+        0x05 => "ctx_teachers",
+        0x06 => "ctx_household_cluster",
+        0x07 => "ctx_bar_social",
+        0x08 => "ctx_student_teacher",
+        0x09 => "ctx_teacher_student",
+        0x0a => "ctx_neighborhood_community",
+        0x0b => "ctx_customer",
+        0x0c => "ctx_presymptomatic",
+        0x0d => "ctx_asymptomatic_recovered",
+        0x0e => "ctx_symptomatic_recovered",
+        0x0f => "ctx_symptomatic",
+        0x10 => "ctx_asymptomatic",
+        0x11 => "ctx_hospitalized",
+        0x12 => "ctx_icu",
+        0x13 => "ctx_ventilated",
+        0x14 => "ctx_treatment_recovered",
+        0x15 => "ctx_removed",
+        0xff => "ctx_index_case"
+        # 0x16 => "ctx_withdrawn"
+    )
+end
+# ============================================================================ #
+function events2csv(ifile::AbstractString, ofile::AbstractString)
+
+    data = read_eventfile(EventData, ifile)
+
+    write_csv(data.demog, replace(ofile, ".csv" => "_demographics.csv"))
+
+    state_col_names = get_state_transition_map()
+    ctx_col_names = get_ctx_transition_map()
+
+    states = sort!(collect(keys(state_col_names)))
+    state_cols = join(map(x -> qstr(state_col_names[x]), states), ",")
+    statemap = Dict{UInt8,Int}(x => k+2 for (k,x) in enumerate(states))
+
+    ctxs = sort!(collect(keys(ctx_col_names)))
+    context_cols = join(map(x -> qstr(ctx_col_names[x]), ctxs), ",")
+    ctxmap = Dict{UInt8,Int}(x => k+2+length(states) for (k,x) in enumerate(ctxs))
+
+    fips = sort(Int.(data.fips))
+    locmap = Dict{Int,Int}(x => k for (k,x) in enumerate(fips))
+
+    open(ofile, "w") do io
+
+        println(io, "\"day\",\"tract\",", state_cols, ",", context_cols)
+        
+        for k = 1:data.n_pt
+            tmp = zeros(Int, length(data.fips), length(states) + length(ctxs) + 2)
+            tmp[:,1] .= k
+            tmp[:,2] .= fips            
+            idx = findall(x -> div(x.timestep, 0x0002) == UInt16(k-1), data.events)
+            for j in idx
+                evt = data.events[j]
+                tmp[locmap[tract_fips(evt)], statemap[evt.state]] += 1
+                tmp[locmap[tract_fips(evt)], ctxmap[evt.context]] += 1
+            end
+
+            for j in 1:size(tmp, 1)
+                println(io, join(tmp[j,:], ','))
+            end
+        end
+    end
+
+    return nothing
+end
+# ============================================================================ #
 total_cases(x::AbstractVector{<:Real}) = x
 total_cases(x::AbstractMatrix{<:Real}) = dropdims(sum(x, dims=2),dims=2)
 # ============================================================================ #
