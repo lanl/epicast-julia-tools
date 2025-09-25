@@ -321,7 +321,8 @@ function convert_to_global!(this::SocialNetwork, state::StateNetwork)
 end
 # ---------------------------------------------------------------------------- #
 function read_social_network(in_dir::AbstractString;
-    states::AbstractVector{<:Integer}=Vector{Int8}(), header_only::Bool=false)
+    states::AbstractVector{<:Integer}=Vector{Int8}(), header_only::Bool=false,
+    to_global::Bool=false)
     files = readdir(in_dir, join=true)
     files = filter(f -> occursin(r"\d\d\.social\.bin", f), files)
     if length(states) > 0
@@ -342,7 +343,7 @@ function read_social_network(in_dir::AbstractString;
     n_nodes = sum(map(s -> s.n_nodes, values(states)))
     this = SocialNetwork(states, state_indices, n_edges, n_nodes)
 
-    if !header_only
+    if !header_only && to_global
         for s in states
             convert_to_global!(this, s)
         end
