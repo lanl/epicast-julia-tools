@@ -70,12 +70,12 @@ function get_state_offsets(tract_fips::AbstractVector{<:UInt64},
             continue
         end
         if last_state != state
+            println("state $state has $state_pop people")
             state_idx += 1
             state_pop = 0
 
             offsets[state_idx, :] = [state, offset, state_pop]
             last_state = state
-            println("state $state has $state_pop people")
         end
 
         state_pop += pop
@@ -93,7 +93,7 @@ function get_state_offsets(in_dir::AbstractString, states::AbstractVector{<:Inte
     all_pop = all_pop .% AgentId
     total_pop = sum(all_pop) % AgentId
     state_offsets, used_pop = get_state_offsets(all_tracts, all_pop, states)
-    
+
     used_pop = used_pop % AgentId
     println("States: $states, total pop: $total_pop, used pop: $used_pop")
 
@@ -249,7 +249,7 @@ end
 # ---------------------------------------------------------------------------- #
 function Base.getindex(s::StateNetwork, global_idx::Integer)
     local_idx = global_to_local(s, global_idx)
-    
+
     start = s.people_offsets[local_idx] + 1
     stop = s.people_offsets[local_idx + 1] + 1
 
@@ -258,7 +258,7 @@ end
 # ---------------------------------------------------------------------------- #
 function read_state_network_header(in_path::AbstractString)
     n_edges, n_nodes = read_header(in_path)
-    
+
     return StateNetwork(
         zeros(EdgeId, n_nodes + 1),
         zeros(AgentId, n_edges),
@@ -331,7 +331,7 @@ function read_social_network(in_dir::AbstractString;
 
     states = map(f -> read_state_network(f; header_only=header_only), files)
     state_indices = Dict(states[i].fips_code => i for i in 1:length(states))
-    
+
     node_offset = 0
     for s in states
         s.node_offset = node_offset
