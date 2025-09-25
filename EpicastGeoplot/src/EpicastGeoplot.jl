@@ -430,6 +430,8 @@ function add_map!(ax::PyCall.PyObject, data::GeoplotData{T}, var::AbstractString
     outline_shp, outline_fips = outline_shapes(outline, data)
 
     data_mat = data_matrix(data, var)
+    data_mat = replace(data_mat, NaN => 0.0)
+
     mn = isnan(mn) ? minimum(data_mat) : mn
     mx = isnan(mx) ? quantile(vec(data_mat), maxq) : mx
 
