@@ -206,7 +206,7 @@ function community_counts(wf_file::AbstractString, tr::Vector{UrbanPop.Tract})
         n_res[k] = max(1, round(UInt8, tr[k].n_agent / N_AGENT_PER_COMMUNITY))
 
         n_wrk[k] = (isempty(col) || !haskey(col, fips)) ? 0x00 :
-            round(UInt8, Workerflow.vec_sum(col, fips) / N_AGENT_PER_COMMUNITY)
+            floor(UInt8, Workerflow.vec_sum(col, fips) / N_AGENT_PER_COMMUNITY)
     end
 
     return n_res, n_wrk
@@ -238,7 +238,7 @@ function checkpoint_community_counts(ck_file::AbstractString,
     tr::Vector{UrbanPop.Tract}, ::Val{B}) where {B}
 
     C, P = B ? (CellData, Particle) : (CellDataOrig, ParticleOrig)
-    ck = read_checkpoint_file(C, P, ck_file)
+    ck, _ = read_checkpoint_file(C, P, ck_file)
 
     out = Dict{Int,Tuple{Int,Int,UrbanPop.TractMarginals}}()
 
@@ -310,22 +310,24 @@ function compare_checkpoints(ck1::AbstractString, ck2::AbstractString,
 end
 # ============================================================================ #
 function validate_checkpoint(ck_file::AbstractString, tr_file::AbstractString,
-    wf_file::AbstractString, ag_file::AbstractString="", ::Val{B}=Val{true}) where {B}
+    wf_file::AbstractString, ag_file::AbstractString="", ::Val{B}=Val(true)) where {B}
 
     if !isempty(ag_file)
         tr = UrbanPop.read_tract_file(tr_file)
-        mrgn = UrbanPop.tract_marginals(ag_file)
+        mrgn = UrbanPop.tract_marginals(ag_file, true)
     else
         tr, mrgn = read_epicast_tract_file(tr_file, Val(B))
     end
 
     n_res, n_wrk = community_counts(wf_file, tr)
 
-    if B
-        ck = checkpoint_community_counts(CellData, Particle, ck_file, tr)
-    else
-        ck = checkpoint_community_counts(CellDataOrig, ParticleOrig, ck_file, tr)
-    end
+    # if B
+    #     ck = checkpoint_community_counts(CellData, Particle, ck_file, tr, Val(B))
+    # else
+    #     ck = checkpoint_community_counts(CellDataOrig, ParticleOrig, ck_file, tr, Val(B))
+    # end
+
+    ck = checkpoint_community_counts(ck_file, tr, Val(B))
 
     keys_use = intersect(keys(ck), keys(mrgn))
     if length(ck) != length(mrgn)

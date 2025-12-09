@@ -1,12 +1,14 @@
 module Epicast
 
-using DelimitedFiles, PyPlot, Colors, Statistics
+using DelimitedFiles, PyPlot, Colors, Statistics, TOML, NPZ
 
 using EpicastTables
 
 import Base
 
 const SignedType = Union{AbstractFloat,Signed}
+
+export State, County, Tract, BlockGroup
 
 # ============================================================================ #
 function epi_plot(idir::AbstractString, run::Integer=2)
@@ -231,26 +233,26 @@ function diff(d::RunData, vars::AbstractVector{<:AbstractString},
 end
 # ============================================================================ #
 function default_denom(d::RunData, var::AbstractString)
-    if has_demographic(d, denom)
-        denom_data = d.demog[denom]
-    elseif has_data(d, denom)
-        denom_data = d.data[denom]
+    if has_demographic(d, var)
+        denom_data = d.demog[var]
+    elseif has_data(d, var)
+        denom_data = d.data[var]
     else
-        error("variable \"$(denom)\" does not exist in given RunData")
+        error("variable \"$(var)\" does not exist in given RunData")
     end
 
     return denom_data
 end
+noop_denom(d::RunData, var::AbstractString) = ones(size(d.data[var], 2))
 # ============================================================================ #
 function normalize!(d::RunData{G,L,T}, var::AbstractString,
     get_denom::Function=default_denom) where {G,L,T<:AbstractFloat}
-
     d.data[var] ./= reshape(get_denom(d, var), 1, :)
     return d
 end
 # ============================================================================ #
 function preprocess!(d::RunData{G,L,T}, var::AbstractString; smooth::Bool=false,
-    diff::Bool=false, get_denom::Function=x->default_denom(d, var)) where {G,L,T<:AbstractFloat}
+    diff::Bool=false, get_denom::Function=default_denom) where {G,L,T<:AbstractFloat}
 
     smooth && smooth!(d, var)
     diff && diff!(d, var)
@@ -260,7 +262,7 @@ end
 # ---------------------------------------------------------------------------- #
 function preprocess!(d::RunData{G,L,T}, vars::AbstractVector{<:AbstractString};
     smooth::Bool=false, diff::Bool=false,
-    get_denom::Function=x->default_denom(d, var)) where {G,L,T<:AbstractFloat}
+    get_denom::Function=default_denom) where {G,L,T<:AbstractFloat}
 
     for var in vars
         preprocess!(d, var, smooth=smooth, diff=diff, get_denom=get_denom)
@@ -270,7 +272,7 @@ function preprocess!(d::RunData{G,L,T}, vars::AbstractVector{<:AbstractString};
 end
 # ---------------------------------------------------------------------------- #
 function preprocess!(d::RunData{G,L,T}, fmatch::Function; smooth::Bool=false,
-    diff::Bool=false, get_denom::Function=x->default_denom(d, var)) where {G,L,T<:AbstractFloat}
+    diff::Bool=false, get_denom::Function=default_denom) where {G,L,T<:AbstractFloat}
 
     for name in column_names(d)
         fmatch(name) && preprocess!(d, name, smooth=smooth, diff=diff,
@@ -281,7 +283,7 @@ function preprocess!(d::RunData{G,L,T}, fmatch::Function; smooth::Bool=false,
 end
 # ---------------------------------------------------------------------------- #
 function preprocess!(d::RunData{G,L,T}, pat::Regex; smooth::Bool=false,
-    diff::Bool=false, get_denom::Function=x->default_denom(d, var)) where {G,L,T<:AbstractFloat}
+    diff::Bool=false, get_denom::Function=default_denom) where {G,L,T<:AbstractFloat}
 
     preprocess!(d, x -> occursin(pat, x), smooth=smooth, diff=diff,
         get_denom=get_denom)
@@ -447,7 +449,11 @@ function read_agent_transitions(io::IO)
 
     data = Vector{AgentTransition}(undef, n_packet)
     read!(io, data)
-
+    
+    # sort by timestep: transitions are written once per day, but there are two
+    # timesteps each day so events can
+    sort!(data, lt = (a,b) -> a.timestep < b.timestep)
+    
     return data
 end
 # ============================================================================ #
@@ -1010,6 +1016,124 @@ function do_match(dir::AbstractString, re::Regex, f::Function)
     return filter(x->occursin(re, x) && f(x), files)
 end
 # ============================================================================ #
+function group_by_timestep(data::Vector{AgentTransition}; filter::Function=x->true,
+    by_day::Bool=false)
+
+    scale = by_day ? 2 : 1
+
+    N = div(data[end].timestep, scale) + 1
+    out = [Vector{AgentTransition}(undef, 0) for _ in 1:N]
+
+    for evt in data
+        filter(evt) && push!(out[div(evt.timestep, scale)+1], evt)
+    end
+
+    return out
+end
+# ============================================================================ #
+@generated function counts_by(data::Vector{AgentTransition}, ::Val{F}) where F
+    FT = fieldtype(AgentTransition, F)
+    return quote
+        counts_by(data, Val(F), Set{$FT}(getfield.(data, F)))
+    end
+end
+# ============================================================================ #
+function counts_by(data::Vector{AgentTransition}, ::Val{F}, vals::Set{T}) where {F,T}
+    
+    @assert(hasfield(AgentTransition, F))
+
+    out = Dict{T,Int}(v => 0 for v in vals)
+
+    for x in data
+        v = getfield(x, F)
+        in(v, vals) && (out[v] += 1)
+    end
+
+    return out
+end
+# ============================================================================ #
+function counts_by(data::Vector{Vector{AgentTransition}}, ::Val{F}, vals::Set{T}) where {F,T}
+
+    @assert(hasfield(AgentTransition, F))
+
+    out = Dict{T,Vector{Float64}}(v => zeros(length(data)) for v in vals)
+
+    for k in eachindex(data)
+        for x in data[k]
+            v = getfield(x, F)
+            in(v, vals) && (out[v][k] += 1)
+        end
+    end
+
+    return out
+end
+# ============================================================================ #
+function number_in_hospital(data::Vector{AgentTransition})
+    tmp = Dict{UInt64,Vector{Int}}()
+    for evt in data
+        if in(evt.context, [0x11,0x12,0x13])
+            tmp[evt.agent_id] = Int[Int(div(evt.timestep, 2) + 1), -1]
+        elseif in(evt.context, [0x14,0x15]) && haskey(tmp, evt.agent_id)
+            tmp[evt.agent_id][2] = div(evt.timestep, 2) + 1
+        end
+    end
+
+    out = zeros(Int, div(data[end].timestep, 2) + 1)
+    avg_dur = 0.0
+    N = 0
+    for v in values(tmp)
+        if v[2] < 0
+            v[2] = length(out)
+        else
+            avg_dur += v[2] - v[1]
+            N += 1
+        end
+        out[v[1]:v[2]] .+= 1
+    end
+
+    return out, avg_dur / N
+end
+# ============================================================================ #
+function package_data(idir::AbstractString, rn::Integer,
+    param_file::AbstractString, zip_name::AbstractString)
+
+    prefix = "run_" * lpad(rn, 3, '0')
+    evt_file = joinpath(idir, prefix * ".events.bin")
+    csv_file = joinpath(idir, prefix * ".csv")
+
+    events2csv(evt_file, csv_file)
+
+    log_file = joinpath(idir, prefix * ".log")
+
+    iisf_file = joinpath(idir, prefix * "_xmit_iisf.toml")
+    open(iisf_file, "w") do io
+        for line in eachline(log_file)
+            if startswith(line, r"xmit_\w+ = ")
+                println(io, line)
+            elseif startswith(line, "work_schedule")
+                break
+            end
+        end
+    end
+
+    param_out = joinpath(idir, prefix * ".toml")
+
+    open(param_out, "w") do io
+        for line in eachline(param_file)
+            if startswith(line, "run_number")
+                println(io, "run_number = ", rn)
+            else
+                println(io, replace(line, "/Users/palexander/Documents/emerge+radium/" => ""))
+            end
+        end
+    end
+
+    zip_file = joinpath(idir, "epicast_nm_" * zip_name * "_" * prefix * ".zip")
+    cmd = `7z a $(zip_file) $(csv_file) $(iisf_file) $(param_out)`
+
+    run(cmd)
+end
+# ============================================================================ #
 const STATE_FIPS = Dict(
     1 => "AL", 2 => "AK", 4 => "AZ", 5 => "AR", 6 => "CA", 8 => "CO", 9 => "CT",
     10 => "DE", 11 => "DC", 12 => "FL", 13 => "GA", 15 => "HI", 16 => "ID",
@@ -1021,4 +1145,5 @@ const STATE_FIPS = Dict(
     48 => "TX", 49 => "UT", 50 => "VT", 51 => "VA", 53 => "WA", 54 => "WV",
     55 => "WI", 56 => "WY"
 )
+# ============================================================================ #
 end
