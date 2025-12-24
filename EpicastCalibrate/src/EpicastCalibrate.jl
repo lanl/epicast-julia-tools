@@ -13,7 +13,7 @@ module EpicastCalibrate
 
 using Epicast, TOML, NPZ
 using Epicast.EpicastTables
-using DelimitedFiles
+using DelimitedFiles, PyPlot, Statistics, Sobol
 # ============================================================================ #
 function write_policy(io::IO, scale::Vector{<:AbstractFloat}, counties::Vector{<:Integer})
     N = length(counties)
@@ -31,108 +31,112 @@ function write_policy(io::IO, scale::Vector{<:AbstractFloat}, counties::Vector{<
     end
 end
 # ============================================================================ #
-function rs_rand(n::Integer, min_v::AbstractFloat, max_v::AbstractFloat, epsilon::AbstractFloat=1e-4)
-
-    out = Vector{Float64}(undef, n)
-    out[1] = (rand() * (max_v - min_v)) + min_v
-
-    for k = 2:n
-
-        mn = -Inf
-        r = 0.0
-        attempt = 0
-        best = mn
-        while mn < epsilon && attempt < 100
-            r = (rand() * (max_v - min_v)) + min_v
-            mn = minimum(x -> abs.(r - x), view(out, 1:(k-1)))
-            attempt += 1
-            best = max(mn, best)
-        end
-
-        attempt >= 100 && @warn("Failed to generate sample w/in 500 attepmts (best = $(best))")
-    
-        out[k] = r
-    end
-
-    return out
+@inline function rand_bt(n::Integer, min_v::AbstractFloat, max_v::AbstractFloat)
+    return rand(n) .* (max_v - min_v) .+ min_v
 end
 # ============================================================================ #
-function generate_case_files(param_file::AbstractString,
-    counties::Vector{<:Integer}, pop::Vector{<:Integer}, n::Integer,
-    odir::AbstractString=dirname(ifile), n_idx_case::Integer=20,
-    n_rep::Integer=5)
+function fixed_index_cases(x::Integer=1)
+    return [111,5,84,5,5,24,5,81,63,8,5,5,5,56,5,5,23,28,5,6,5,8,11,13,22,5,36,
+        5,5,5,5,5,10] .* x
+end
+# ============================================================================ #
+function generate_case_file(param_file::AbstractString,
+    counties::Vector{<:Integer}, pop::Vector{<:Integer}, im::Vector{Float64},
+    run_n::Integer, odir::AbstractString=dirname(ifile))
 
-    # fixed # of index cases across all runs, but uniform? or random small %?
-    if true
-        # in ascending sorted FIPS order for NM counties
-        n_idx = [111,5,84,5,5,24,5,81,63,8,5,5,5,56,5,5,23,28,5,6,5,8,11,13,22,5,36,5,5,5,5,5,10]
-    else
-        n_idx = fill(n_idx_case, length(counties))
-    end
+    # in ascending sorted FIPS order for NM counties
+    n_idx = fixed_index_cases(5)
 
-    for k = 1:n
+    # for k = 1:n
 
-        iim = rs_rand(length(counties), 0.0, 0.5, 1e-4)
+        # iim = rand_bt(length(counties), 0.0, 0.5)
 
-        ofile = joinpath(odir, 
-            replace(
-                basename(param_file),
-                ".toml" => "_run_" * lpad((k-1) * n_rep, 3, '0') * ".cases"
-            )
+    ofile = joinpath(odir, 
+        replace(
+            basename(param_file),
+            ".toml" => "_run_" * lpad(run_n, 3, '0') * ".cases"
         )
+    )
 
-        open(ofile, "w") do io
-            for (k, county) in enumerate(counties)
-                println(io, county, " ", n_idx[k], " ",
-                    round(Int, iim[k] * pop[k])
-                )
-            end
+    open(ofile, "w") do io
+        for (k, county) in enumerate(counties)
+            println(io, county, " ", n_idx[k], " ",
+                round(Int, im[k] * pop[k])
+            )
         end
-
     end
+
+    # end
 end
 # ============================================================================ #
-function generate_toml_files(ifile::AbstractString, counties::Vector{<:Integer},
-    n::Integer, odir::AbstractString=dirname(ifile), n_rep::Integer=5)
+function generate_toml_file(ifile::AbstractString, counties::Vector{<:Integer},
+    par::Vector{Float64}, run_n::Integer, odir::AbstractString=dirname(ifile))
     
     param_str = read(ifile, String)
 
-    N = round.(Int, log10(n) + 1)
+    # p_trans = round.(rand_bt(n, 0.075, 0.35), digits=5)
+    # p_asymptomatic = round.(rand_bt(n, 0.05, 0.95), digits=5)
+    # rel_trans_asymptomatic = round.(rand_bt(n, 0.05, 0.95), digits=5)
+    # withdrawal_scalar = round.(rand_bt(n, 0.0, 2.0), digits=5)
 
-    p_trans = round.(rs_rand(n, 0.075, 0.35, 10.0^-N), digits=5)
-    p_asymptomatic = round.(rs_rand(n, 0.05, 0.95, 10.0^-N), digits=5)
-    rel_trans_asymptomatic = round.(rs_rand(n, 0.05, 0.95, 10.0^-N), digits=5)
-    withdrawal_scalar = round.(rs_rand(n, 0.0, 2.0, (10.0^-N) * 2), digits=5)
+    tmp = replace(param_str, r"run_number = \d+" => "run_number = $(run_n)")
 
-    for k = 1:n
-    
-        tmp = replace(param_str, r"run_number = \d+" => "run_number = $(k-1)")
+    tmp = replace(tmp, r"p_trans = \d?\.?\d+" => "p_trans = $(par[1])")
+    tmp = replace(tmp, r"p_asymptomatic = \d?\.?\d+" => "p_asymptomatic = $(par[2])")
+    tmp = replace(tmp, r"rel_trans_asymptomatic = \d?\.?\d+" => "rel_trans_asymptomatic = $(par[3])")
+    tmp = replace(tmp, r"withdrawal_scalar = \d?\.?\d+" => "withdrawal_scalar = $(par[4])")
 
-        tmp = replace(tmp, r"p_trans = \d?\.?\d+" => "p_trans = $(p_trans[k])")
-        tmp = replace(tmp, r"p_asymptomatic = \d?\.?\d+" => "p_asymptomatic = $(p_asymptomatic[k])")
-        tmp = replace(tmp, r"rel_trans_asymptomatic = \d?\.?\d+" => "rel_trans_asymptomatic = $(rel_trans_asymptomatic[k])")
-        tmp = replace(tmp, r"withdrawal_scalar = \d?\.?\d+" => "withdrawal_scalar = $(withdrawal_scalar[k])")
+    ofile = joinpath(odir, 
+        replace(basename(ifile), ".toml" => "_run_" * lpad(run_n, 3, '0') * ".toml")
+    )
 
-        ofile = joinpath(odir, 
-            replace(basename(ifile), ".toml" => "_run_" * lpad((k-1) * n_rep, 3, '0') * ".toml")
-        )
+    idx_case_file = joinpath(
+        "/vast/home/palexander/sandbox/nm_multi-param_sweep-all_params",
+        # "/Users/palexander/Documents/emerge+radium/testing_results/nm_multi-param_sweep-all/test",
+        replace(basename(ofile), ".toml" => ".cases")
+    )
 
-        idx_case_file = joinpath(
-            "/vast/home/palexander/sandbox/nm_multi-param_sweep-all_params",
-            # "/Users/palexander/Documents/emerge+radium/testing_results/nm_multi-param_sweep-all/test",
-            replace(basename(ofile), ".toml" => ".cases")
-        )
+    tmp = replace(tmp, r"index_case_file = [^\n]+" => "index_case_file = \"$(idx_case_file)\"")
 
-        tmp = replace(tmp, r"index_case_file = [^\n]+" => "index_case_file = \"$(idx_case_file)\"")
+    open(ofile, "w") do io
+        print(io, tmp)
+        # scale = round.((rand(length(counties)) .* 0.85) .+ 0.15, digits=4)
+        # scale = round.((rand_bt(length(counties), 0.0, 1.0) .* 0.85) .+ 0.15, digits=5)
+        scale = par[5:(5 + 33 - 1)]
+        write_policy(io, scale, counties)
+    end
+end
+# ============================================================================ #
+function generate_param_files(param_file::AbstractString,
+    county_file::AbstractString, n::Integer, odir::AbstractString)
 
-        open(ofile, "w") do io
-            print(io, tmp)
-            # scale = round.((rand(length(counties)) .* 0.85) .+ 0.15, digits=4)
-            scale = round.((rs_rand(length(counties), 0.0, 1.0, 1e-4) .* 0.85) .+ 0.15, digits=4)
-            write_policy(io, scale, counties)
-        end
+    cnty_data = readdlm(county_file, ' ', Int)
+
+    seq = SobolSeq(
+        vcat([0.075, 0.05, 0.05, 0.0], fill(0.15, 33), fill(0.00, 33)),
+        vcat([0.350, 0.95, 0.95, 2.0], fill(1.00, 33), fill(0.75, 33))
+    )
+
+    skip(seq, n)
+
+    cache = zeros(70)
+    # out = zeros(70,n)
+    for k in 1:n
+
+        next!(seq, cache)
+        cache .+= (0.0001 .* randn(70))
+
+        cache .= max.(cache, 0.0)
+
+        generate_toml_file(param_file, cnty_data[:,1], cache[1:(33 + 4)],
+            (k-1) * 5, odir)
+
+        generate_case_file(param_file, cnty_data[:,1], cnty_data[:,2],
+            cache[(33 + 5):end], (k-1) * 5, odir)
 
     end
+
+    # return out
 end
 # ============================================================================ #
 function read_case_file_immunity(ifile::AbstractString)
@@ -148,16 +152,24 @@ function write_npz2(data_dirs::Vector{<:AbstractString},
     pop::Vector{<:Integer}, ofile::AbstractString)
 
     n_geo = 33
-    n_global = 5 # 4 + state-level im
-    n_local = 2
+    n_global = 4 # [p_trans, p_asymp, rel_tans_asymp, withdrawl]
+    n_local = 2  # [work/social_scale, initial_immune]
     n_rep = 5
+
+    cols = vcat(
+        ["p_trans","p_asymptomatic","rel_trans_asymptomatic","withdrawal_scalar"],
+        map(x -> "iisf_" * string(x), counties),
+        map(x -> "immune_" * string(x), counties),
+    )
 
     param_files = map(x -> Epicast.find_files(x, r".*\.toml"), param_dirs)
     run_n = collect(Iterators.flatten(map(x -> map(get_run_number, x), param_files)))
         # map(x -> get_run_number(x) + 1000, param_files[2]))
 
+    ks = sortperm(run_n)
+    run_n = run_n[ks]
     param_files = reduce(vcat, param_files)
-    param_files .= param_files[sortperm(run_n)]
+    param_files .= param_files[ks]
 
     params = zeros(Float64, length(param_files) * n_rep, n_global + n_local * n_geo)
     out = zeros(Float64, length(param_files) * n_rep, 250, n_geo)
@@ -181,12 +193,12 @@ function write_npz2(data_dirs::Vector{<:AbstractString},
         @assert(isfile(case_file), "$(case_file)")
         im = read_case_file_immunity(case_file)
 
-        # run = get_run_number(file) * 5
-        run = run_n[k]# * 5
+        run = run_n[k]
 
         for j in run:(run+4)
-            data_dir = j < 5000 ? data_dirs[1] : data_dirs[2]
+            data_dir = data_dirs[1]
             data_file = joinpath(data_dir, "run_" * lpad(j, 3, '0') * ".bin")
+
             data = Epicast.preprocess!(
                 Epicast.aggregate(Epicast.County, Epicast.read_runfile(data_file)),
                 "total",
@@ -195,13 +207,13 @@ function write_npz2(data_dirs::Vector{<:AbstractString},
                 get_denom=Epicast.noop_denom
             )
 
-            out[inc,:,:] .+= data.data["total"]
+            out[inc,:,:] .= data.data["total"]
 
             params[inc,1] = p_trans
             params[inc,2] = p_asymptomatic
             params[inc,3] = rel_trans_asymptomatic
             params[inc,4] = withdrawal_scalar
-            params[inc,5] = sum(im) / sum(pop)
+
             idx = n_global + n_geo
             params[inc,(n_global + 1):idx] .= work_scale
             params[inc,idx+1:end] .= im ./ pop
@@ -213,6 +225,11 @@ function write_npz2(data_dirs::Vector{<:AbstractString},
     npzwrite(ofile, out)
     npzwrite(replace(ofile, ".npz" => "_params.npz"), params)
 
+    open(replace(ofile, ".npz" => "_params.names"), "w") do io
+        for col in cols
+            println(io, col)
+        end
+    end
 end
 # ============================================================================ #
 function write_npz(::Type{G}, idir::AbstractString, ofile::AbstractString,
@@ -272,5 +289,136 @@ function write_npz(::Type{G}, idir::AbstractString, ofile::AbstractString,
 
     return out, up
 end
+# ============================================================================ #
+function generate_files_from_params(param_file::AbstractString,
+    counties::Vector{<:Integer}, pop::Vector{<:Integer}, par::Vector{<:Real},
+    ofile::AbstractString)
+
+    param_str = read(param_file, String)
+
+    tmp = replace(param_str, r"p_trans = \d?\.?\d+" => "p_trans = $(par[1])")
+    tmp = replace(tmp, r"p_asymptomatic = \d?\.?\d+" => "p_asymptomatic = $(par[2])")
+    tmp = replace(tmp, r"rel_trans_asymptomatic = \d?\.?\d+" => "rel_trans_asymptomatic = $(par[3])")
+    tmp = replace(tmp, r"withdrawal_scalar = \d?\.?\d+" => "withdrawal_scalar = $(par[4])")
+
+    idx_case_file = replace(ofile, ".toml" => ".cases")
+    tmp = replace(tmp, r"index_case_file = [^\n]+" => "index_case_file = \"$(idx_case_file)\"")
+
+    last = (5+length(counties)-1)
+
+    open(ofile, "w") do io
+        print(io, tmp)
+        write_policy(io, par[5:last], counties)
+    end
+
+    n_idx = fixed_index_cases(3)
+
+    open(idx_case_file, "w") do io
+        for k in eachindex(counties)
+            println(io, counties[k], ' ', n_idx[k], ' ', round(Int, par[last+k] * pop[k]))
+        end
+    end
+
+end
+# ============================================================================ #
+function load_all_data(idir::AbstractString)
+    files = Epicast.find_files(idir, r".*\.bin$")
+    out = zeros(Float64, 250, 33, length(files))
+    fips = Int[]
+    for (k,file) in enumerate(files)
+        data = Epicast.preprocess!(
+            Epicast.aggregate(County, Epicast.read_rundata(file)),
+            "total",
+            diff=true,
+            smooth=true,
+            get_denom=Epicast.noop_denom
+        )
+        out[:,:,k] .= data.data["total"]
+        if isempty(fips)
+            fips = sort!(collect(keys(data.data.fips_index)))
+        end
+    end
+
+    # n = div(length(files), 5)
+    # tmp = zeros(250, 33, n)
+    # inc = 1
+    # for k in 1:5:length(files)
+    #     tmp[:,:,inc] .= mean(out[:,:,k:k+4], dims=3)
+    #     inc += 1
+    # end
+
+    return out, fips
+end
+# ============================================================================ #
+function comparison_plot(idir::AbstractString, obs_file::AbstractString,
+    single_plot::Bool=true)
+
+    obs = npzread(obs_file)
+
+    data, fips = load_all_data(idir)
+
+    # @show(sum(data.data["total"]), sum(obs))
+
+    if single_plot
+        h, ax = subplots(1,1)
+
+        cols = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+        ax.set_prop_cycle("color", cols)
+
+        # ax.plot(data.data["total"])# ./ 10)
+
+        for k in 1:33
+            mn = dropdims(mean(data[:,k,:], dims=2), dims=2)
+            sd = dropdims(std(data[:,k,:], dims=2), dims=2)
+            hp = ax.fill_between(0:249, mn .- sd, mn .+ sd, alpha=0.2)
+            ax.plot(0:249, mn, color=hp.get_facecolor()[1:3])
+        end
+        ax.set_prop_cycle("color", cols)
+
+        # ax.plot(obs, "--")
+
+        ax.spines["right"].set_visible(false)
+        ax.spines["top"].set_visible(false)
+
+        ax.set_xlabel("Simulation day (0 = 2020-09-13)", fontsize=14)
+        ax.set_ylabel("Newly exposed per day", fontsize=14)
+
+        h.tight_layout()
+
+    else
+
+        h, ax = subplots(7,5)
+        h.set_size_inches((12,12))
+
+        for k in 1:33
+            # mn = dropdims(mean(data[:,k,:], dims=2), dims=2)
+            # sd = dropdims(std(data[:,k,:], dims=2), dims=2)
+            # hp = ax[k].fill_between(0:249, mn .- sd, mn .+ sd, alpha=0.2)
+            # ax[k].plot(0:249, mn, color=hp.get_facecolor()[1:3])
+
+            ax[k].plot(0:249, data[:,k,:], color="C0")
+
+            ax[k].plot(obs[:,k], color="C1")
+
+            ax[k].set_title("County $(fips[k])", fontsize=14)
+            ax[k].spines["right"].set_visible(false)
+            ax[k].spines["top"].set_visible(false)
+        end
+
+        ax[end-1].set_visible(false)
+        ax[end].set_visible(false)
+        h.tight_layout()
+
+        n = length(ax[27].lines)
+        hl = map(k -> ax[27].lines[k], [1,n])
+        ax[27].legend(hl, ["Epicast", "Observed"], fontsize=14, frameon=false,
+            loc="upper left", bbox_to_anchor=(1.0,1.0))
+
+    end
+
+    return h, ax
+end
+# ============================================================================ #
+params_from_string(str::AbstractString) = parse.(Float64, split(str, r"\s+"))
 # ============================================================================ #
 end # module EpicastCalibrate

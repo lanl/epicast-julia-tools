@@ -2,7 +2,7 @@
 
 julia_version = "1.12.2"
 manifest_format = "2.0"
-project_hash = "e8770fbc29de7abae0ade1b94b1dfe91ce55ac76"
+project_hash = "26aaa981c663138581d27e33021b5435f22a0d41"
 
 [[deps.ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
@@ -50,19 +50,33 @@ git-tree-sha1 = "9e2f36d3c96a820c678f2f1f1782582fcf685bae"
 uuid = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 version = "1.9.1"
 
+[[deps.Distances]]
+deps = ["LinearAlgebra", "Statistics", "StatsAPI"]
+git-tree-sha1 = "c7e3a542b999843086e2f29dac96a618c105be1d"
+uuid = "b4f34e82-e78d-54a5-968a-f98e89d6e8f7"
+version = "0.10.12"
+
+    [deps.Distances.extensions]
+    DistancesChainRulesCoreExt = "ChainRulesCore"
+    DistancesSparseArraysExt = "SparseArrays"
+
+    [deps.Distances.weakdeps]
+    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+    SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+
 [[deps.Downloads]]
 deps = ["ArgTools", "FileWatching", "LibCURL", "NetworkOptions"]
 uuid = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 version = "1.7.0"
 
 [[deps.Epicast]]
-deps = ["Colors", "DelimitedFiles", "EpicastTables", "NPZ", "PrettyPrinting", "PyPlot", "Statistics", "TOML"]
+deps = ["Colors", "DelimitedFiles", "EpicastTables", "PrettyPrinting", "PyPlot", "Statistics", "TOML"]
 path = "/Users/palexander/Documents/emerge+radium/code/julia-packages/Epicast"
 uuid = "cbb96616-a3d1-4d5e-a40b-9319cdaf6efd"
 version = "0.1.0"
 
 [[deps.EpicastCalibrate]]
-deps = ["Epicast", "NPZ", "TOML"]
+deps = ["DelimitedFiles", "Distances", "Epicast", "NPZ", "PyPlot", "Statistics", "TOML"]
 path = "."
 uuid = "8bfefec5-fe69-4f90-91d3-4c96ead977e6"
 version = "0.1.0"
@@ -272,6 +286,12 @@ version = "0.7.0"
 uuid = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
 version = "1.11.0"
 
+[[deps.Sobol]]
+deps = ["DelimitedFiles", "Random"]
+git-tree-sha1 = "5a74ac22a9daef23705f010f72c81d6925b19df8"
+uuid = "ed01d8cd-4d21-5b2a-85b4-cc3bdc58bad4"
+version = "1.5.0"
+
 [[deps.Sockets]]
 uuid = "6462fe0b-24de-5631-8697-dd941f90decc"
 version = "1.11.0"
@@ -287,6 +307,12 @@ version = "1.11.1"
 
     [deps.Statistics.weakdeps]
     SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+
+[[deps.StatsAPI]]
+deps = ["LinearAlgebra"]
+git-tree-sha1 = "178ed29fd5b2a2cfc3bd31c13375ae925623ff36"
+uuid = "82ae8749-77ed-4fe6-ae5f-f523153014b0"
+version = "1.8.0"
 
 [[deps.StructUtils]]
 deps = ["Dates", "UUIDs"]

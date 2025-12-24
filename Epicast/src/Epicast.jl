@@ -11,7 +11,7 @@ module Epicast
 # to reproduce, prepare. derivative works, distribute copies to the public,
 # perform publicly and display publicly, and to permit others to do so.
 
-using DelimitedFiles, PyPlot, Colors, Statistics, TOML, NPZ
+using DelimitedFiles, PyPlot, Colors, Statistics
 
 using EpicastTables
 
