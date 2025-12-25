@@ -14,6 +14,8 @@ module EpicastCalibrate
 using Epicast, TOML, NPZ
 using Epicast.EpicastTables
 using DelimitedFiles, PyPlot, Statistics, Sobol
+
+const UNDER_REPORTING_FACTOR = 3
 # ============================================================================ #
 function write_policy(io::IO, scale::Vector{<:AbstractFloat}, counties::Vector{<:Integer})
     N = length(counties)
@@ -45,11 +47,7 @@ function generate_case_file(param_file::AbstractString,
     run_n::Integer, odir::AbstractString=dirname(ifile))
 
     # in ascending sorted FIPS order for NM counties
-    n_idx = fixed_index_cases(5)
-
-    # for k = 1:n
-
-        # iim = rand_bt(length(counties), 0.0, 0.5)
+    n_idx = fixed_index_cases(UNDER_REPORTING_FACTOR)
 
     ofile = joinpath(odir, 
         replace(
@@ -65,19 +63,12 @@ function generate_case_file(param_file::AbstractString,
             )
         end
     end
-
-    # end
 end
 # ============================================================================ #
 function generate_toml_file(ifile::AbstractString, counties::Vector{<:Integer},
     par::Vector{Float64}, run_n::Integer, odir::AbstractString=dirname(ifile))
     
     param_str = read(ifile, String)
-
-    # p_trans = round.(rand_bt(n, 0.075, 0.35), digits=5)
-    # p_asymptomatic = round.(rand_bt(n, 0.05, 0.95), digits=5)
-    # rel_trans_asymptomatic = round.(rand_bt(n, 0.05, 0.95), digits=5)
-    # withdrawal_scalar = round.(rand_bt(n, 0.0, 2.0), digits=5)
 
     tmp = replace(param_str, r"run_number = \d+" => "run_number = $(run_n)")
 
@@ -100,8 +91,6 @@ function generate_toml_file(ifile::AbstractString, counties::Vector{<:Integer},
 
     open(ofile, "w") do io
         print(io, tmp)
-        # scale = round.((rand(length(counties)) .* 0.85) .+ 0.15, digits=4)
-        # scale = round.((rand_bt(length(counties), 0.0, 1.0) .* 0.85) .+ 0.15, digits=5)
         scale = par[5:(5 + 33 - 1)]
         write_policy(io, scale, counties)
     end
@@ -114,7 +103,7 @@ function generate_param_files(param_file::AbstractString,
 
     seq = SobolSeq(
         vcat([0.075, 0.05, 0.05, 0.0], fill(0.15, 33), fill(0.00, 33)),
-        vcat([0.350, 0.95, 0.95, 2.0], fill(1.00, 33), fill(0.75, 33))
+        vcat([0.350, 0.95, 0.95, 2.0], fill(1.00, 33), fill(0.50, 33))
     )
 
     skip(seq, n)
