@@ -96,8 +96,12 @@ function generate_toml_file(ifile::AbstractString, counties::Vector{<:Integer},
     end
 end
 # ============================================================================ #
+# choose skip_n CAREFULLY
+# for run 08: n = 4096, skip_n = 4095
+# for run 09: n = 8192, skip_n = 4095 + 4096
 function generate_param_files(param_file::AbstractString,
-    county_file::AbstractString, n::Integer, odir::AbstractString)
+    county_file::AbstractString, n::Integer, skip_n::Integer,
+    odir::AbstractString)
 
     cnty_data = readdlm(county_file, ' ', Int)
 
@@ -106,7 +110,11 @@ function generate_param_files(param_file::AbstractString,
         vcat([0.350, 0.95, 0.95, 2.0], fill(1.00, 33), fill(0.50, 33))
     )
 
-    skip(seq, n)
+    !isdir(odir) && mkpath(odir)
+
+    # 20260122: n was 4096 for the single run we did, so skip_n should be
+    # 4095 + 4096
+    skip(seq, skip_n, exact=true)
 
     cache = zeros(70)
     # out = zeros(70,n)
