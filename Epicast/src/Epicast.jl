@@ -19,6 +19,8 @@ import Base
 
 const SignedType = Union{AbstractFloat,Signed}
 
+export State, County, Tract, BlockGroup
+
 # ============================================================================ #
 function epi_plot(idir::AbstractString, run::Integer=2)
 
@@ -242,26 +244,26 @@ function diff(d::RunData, vars::AbstractVector{<:AbstractString},
 end
 # ============================================================================ #
 function default_denom(d::RunData, var::AbstractString)
-    if has_demographic(d, denom)
-        denom_data = d.demog[denom]
-    elseif has_data(d, denom)
-        denom_data = d.data[denom]
+    if has_demographic(d, var)
+        denom_data = d.demog[var]
+    elseif has_data(d, var)
+        denom_data = d.data[var]
     else
-        error("variable \"$(denom)\" does not exist in given RunData")
+        error("variable \"$(var)\" does not exist in given RunData")
     end
 
     return denom_data
 end
+noop_denom(d::RunData, var::AbstractString) = ones(size(d.data[var], 2))
 # ============================================================================ #
 function normalize!(d::RunData{G,L,T}, var::AbstractString,
     get_denom::Function=default_denom) where {G,L,T<:AbstractFloat}
-
     d.data[var] ./= reshape(get_denom(d, var), 1, :)
     return d
 end
 # ============================================================================ #
 function preprocess!(d::RunData{G,L,T}, var::AbstractString; smooth::Bool=false,
-    diff::Bool=false, get_denom::Function=x->default_denom(d, var)) where {G,L,T<:AbstractFloat}
+    diff::Bool=false, get_denom::Function=default_denom) where {G,L,T<:AbstractFloat}
 
     smooth && smooth!(d, var)
     diff && diff!(d, var)
@@ -271,7 +273,7 @@ end
 # ---------------------------------------------------------------------------- #
 function preprocess!(d::RunData{G,L,T}, vars::AbstractVector{<:AbstractString};
     smooth::Bool=false, diff::Bool=false,
-    get_denom::Function=x->default_denom(d, var)) where {G,L,T<:AbstractFloat}
+    get_denom::Function=default_denom) where {G,L,T<:AbstractFloat}
 
     for var in vars
         preprocess!(d, var, smooth=smooth, diff=diff, get_denom=get_denom)
@@ -281,7 +283,7 @@ function preprocess!(d::RunData{G,L,T}, vars::AbstractVector{<:AbstractString};
 end
 # ---------------------------------------------------------------------------- #
 function preprocess!(d::RunData{G,L,T}, fmatch::Function; smooth::Bool=false,
-    diff::Bool=false, get_denom::Function=x->default_denom(d, var)) where {G,L,T<:AbstractFloat}
+    diff::Bool=false, get_denom::Function=default_denom) where {G,L,T<:AbstractFloat}
 
     for name in column_names(d)
         fmatch(name) && preprocess!(d, name, smooth=smooth, diff=diff,
@@ -292,7 +294,7 @@ function preprocess!(d::RunData{G,L,T}, fmatch::Function; smooth::Bool=false,
 end
 # ---------------------------------------------------------------------------- #
 function preprocess!(d::RunData{G,L,T}, pat::Regex; smooth::Bool=false,
-    diff::Bool=false, get_denom::Function=x->default_denom(d, var)) where {G,L,T<:AbstractFloat}
+    diff::Bool=false, get_denom::Function=default_denom) where {G,L,T<:AbstractFloat}
 
     preprocess!(d, x -> occursin(pat, x), smooth=smooth, diff=diff,
         get_denom=get_denom)
@@ -458,7 +460,11 @@ function read_agent_transitions(io::IO)
 
     data = Vector{AgentTransition}(undef, n_packet)
     read!(io, data)
-
+    
+    # sort by timestep: transitions are written once per day, but there are two
+    # timesteps each day so events can
+    sort!(data, lt = (a,b) -> a.timestep < b.timestep)
+    
     return data
 end
 # ============================================================================ #
@@ -519,6 +525,105 @@ read_eventfile(ifile::AbstractString) = read_eventfile(RunData, ifile)
 function read_rundata(ifile::AbstractString, ::Type{T}=UInt32) where T<:Integer
     return endswith(ifile, ".events.bin") ? read_eventfile(ifile) :
         read_runfile(ifile, T)
+end
+# ============================================================================ #
+@inline qstr(x::AbstractString) = "\"" * x * "\""
+# ============================================================================ #
+function write_csv(x::FIPSTable{G,T,2}, ofile::AbstractString) where {G,T}
+    all_vars = sort(EpicastTables.all_vars(x))
+    open(ofile, "w") do io
+        println(io, "\"fips\",", join(map(qstr, all_vars),","))
+        for fips in sort(EpicastTables.all_fips(x))
+            print(io, fips, ',')
+            for var in all_vars[1:end-1]
+                print(io, x[fips, var], ',')
+            end
+            println(io, x[fips,all_vars[end]])
+        end
+    end
+end
+# ============================================================================ #
+function get_state_transition_map()
+    return Dict{UInt8,String}(
+        0x00 => "recovered",
+        0x01 => "exposed",
+        0x02 => "symptomatic",
+        0x03 => "asymptomatic",
+        0x07 => "presymptomatic"
+    )
+end
+# ============================================================================ #
+function get_ctx_transition_map()
+    return Dict{UInt8,String}(
+        0x00 => "ctx_household",
+        0x01 => "ctx_playgroup",
+        0x02 => "ctx_daycare",
+        0x03 => "ctx_school",
+        0x04 => "ctx_work",
+        0x05 => "ctx_teachers",
+        0x06 => "ctx_household_cluster",
+        0x07 => "ctx_bar_social",
+        0x08 => "ctx_student_teacher",
+        0x09 => "ctx_teacher_student",
+        0x0a => "ctx_neighborhood_community",
+        0x0b => "ctx_customer",
+        0x0c => "ctx_presymptomatic",
+        0x0d => "ctx_asymptomatic_recovered",
+        0x0e => "ctx_symptomatic_recovered",
+        0x0f => "ctx_symptomatic",
+        0x10 => "ctx_asymptomatic",
+        0x11 => "ctx_hospitalized",
+        0x12 => "ctx_icu",
+        0x13 => "ctx_ventilated",
+        0x14 => "ctx_treatment_recovered",
+        0x15 => "ctx_removed",
+        0xff => "ctx_index_case"
+        # 0x16 => "ctx_withdrawn"
+    )
+end
+# ============================================================================ #
+function events2csv(ifile::AbstractString, ofile::AbstractString)
+
+    data = read_eventfile(EventData, ifile)
+
+    write_csv(data.demog, replace(ofile, ".csv" => "_demographics.csv"))
+
+    state_col_names = get_state_transition_map()
+    ctx_col_names = get_ctx_transition_map()
+
+    states = sort!(collect(keys(state_col_names)))
+    state_cols = join(map(x -> qstr(state_col_names[x]), states), ",")
+    statemap = Dict{UInt8,Int}(x => k+2 for (k,x) in enumerate(states))
+
+    ctxs = sort!(collect(keys(ctx_col_names)))
+    context_cols = join(map(x -> qstr(ctx_col_names[x]), ctxs), ",")
+    ctxmap = Dict{UInt8,Int}(x => k+2+length(states) for (k,x) in enumerate(ctxs))
+
+    fips = sort(Int.(data.fips))
+    locmap = Dict{Int,Int}(x => k for (k,x) in enumerate(fips))
+
+    open(ofile, "w") do io
+
+        println(io, "\"day\",\"tract\",", state_cols, ",", context_cols)
+        
+        for k = 1:data.n_pt
+            tmp = zeros(Int, length(data.fips), length(states) + length(ctxs) + 2)
+            tmp[:,1] .= k
+            tmp[:,2] .= fips            
+            idx = findall(x -> div(x.timestep, 0x0002) == UInt16(k-1), data.events)
+            for j in idx
+                evt = data.events[j]
+                tmp[locmap[tract_fips(evt)], statemap[evt.state]] += 1
+                tmp[locmap[tract_fips(evt)], ctxmap[evt.context]] += 1
+            end
+
+            for j in 1:size(tmp, 1)
+                println(io, join(tmp[j,:], ','))
+            end
+        end
+    end
+
+    return nothing
 end
 # ============================================================================ #
 total_cases(x::AbstractVector{<:Real}) = x
@@ -922,6 +1027,124 @@ function do_match(dir::AbstractString, re::Regex, f::Function)
     return filter(x->occursin(re, x) && f(x), files)
 end
 # ============================================================================ #
+function group_by_timestep(data::Vector{AgentTransition}; filter::Function=x->true,
+    by_day::Bool=false)
+
+    scale = by_day ? 2 : 1
+
+    N = div(data[end].timestep, scale) + 1
+    out = [Vector{AgentTransition}(undef, 0) for _ in 1:N]
+
+    for evt in data
+        filter(evt) && push!(out[div(evt.timestep, scale)+1], evt)
+    end
+
+    return out
+end
+# ============================================================================ #
+@generated function counts_by(data::Vector{AgentTransition}, ::Val{F}) where F
+    FT = fieldtype(AgentTransition, F)
+    return quote
+        counts_by(data, Val(F), Set{$FT}(getfield.(data, F)))
+    end
+end
+# ============================================================================ #
+function counts_by(data::Vector{AgentTransition}, ::Val{F}, vals::Set{T}) where {F,T}
+    
+    @assert(hasfield(AgentTransition, F))
+
+    out = Dict{T,Int}(v => 0 for v in vals)
+
+    for x in data
+        v = getfield(x, F)
+        in(v, vals) && (out[v] += 1)
+    end
+
+    return out
+end
+# ============================================================================ #
+function counts_by(data::Vector{Vector{AgentTransition}}, ::Val{F}, vals::Set{T}) where {F,T}
+
+    @assert(hasfield(AgentTransition, F))
+
+    out = Dict{T,Vector{Float64}}(v => zeros(length(data)) for v in vals)
+
+    for k in eachindex(data)
+        for x in data[k]
+            v = getfield(x, F)
+            in(v, vals) && (out[v][k] += 1)
+        end
+    end
+
+    return out
+end
+# ============================================================================ #
+function number_in_hospital(data::Vector{AgentTransition})
+    tmp = Dict{UInt64,Vector{Int}}()
+    for evt in data
+        if in(evt.context, [0x11,0x12,0x13])
+            tmp[evt.agent_id] = Int[Int(div(evt.timestep, 2) + 1), -1]
+        elseif in(evt.context, [0x14,0x15]) && haskey(tmp, evt.agent_id)
+            tmp[evt.agent_id][2] = div(evt.timestep, 2) + 1
+        end
+    end
+
+    out = zeros(Int, div(data[end].timestep, 2) + 1)
+    avg_dur = 0.0
+    N = 0
+    for v in values(tmp)
+        if v[2] < 0
+            v[2] = length(out)
+        else
+            avg_dur += v[2] - v[1]
+            N += 1
+        end
+        out[v[1]:v[2]] .+= 1
+    end
+
+    return out, avg_dur / N
+end
+# ============================================================================ #
+function package_data(idir::AbstractString, rn::Integer,
+    param_file::AbstractString, zip_name::AbstractString)
+
+    prefix = "run_" * lpad(rn, 3, '0')
+    evt_file = joinpath(idir, prefix * ".events.bin")
+    csv_file = joinpath(idir, prefix * ".csv")
+
+    events2csv(evt_file, csv_file)
+
+    log_file = joinpath(idir, prefix * ".log")
+
+    iisf_file = joinpath(idir, prefix * "_xmit_iisf.toml")
+    open(iisf_file, "w") do io
+        for line in eachline(log_file)
+            if startswith(line, r"xmit_\w+ = ")
+                println(io, line)
+            elseif startswith(line, "work_schedule")
+                break
+            end
+        end
+    end
+
+    param_out = joinpath(idir, prefix * ".toml")
+
+    open(param_out, "w") do io
+        for line in eachline(param_file)
+            if startswith(line, "run_number")
+                println(io, "run_number = ", rn)
+            else
+                println(io, replace(line, "/Users/palexander/Documents/emerge+radium/" => ""))
+            end
+        end
+    end
+
+    zip_file = joinpath(idir, "epicast_nm_" * zip_name * "_" * prefix * ".zip")
+    cmd = `7z a $(zip_file) $(csv_file) $(iisf_file) $(param_out)`
+
+    run(cmd)
+end
+# ============================================================================ #
 const STATE_FIPS = Dict(
     1 => "AL", 2 => "AK", 4 => "AZ", 5 => "AR", 6 => "CA", 8 => "CO", 9 => "CT",
     10 => "DE", 11 => "DC", 12 => "FL", 13 => "GA", 15 => "HI", 16 => "ID",
@@ -933,4 +1156,5 @@ const STATE_FIPS = Dict(
     48 => "TX", 49 => "UT", 50 => "VT", 51 => "VA", 53 => "WA", 54 => "WV",
     55 => "WI", 56 => "WY"
 )
+# ============================================================================ #
 end
