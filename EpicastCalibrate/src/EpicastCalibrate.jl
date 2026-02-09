@@ -347,6 +347,10 @@ function load_all_data(idir::AbstractString)
     return out, fips
 end
 # ============================================================================ #
+@inline function mad(x::AbstractMatrix{<:Real}; dims::Integer=1)
+    return median(abs.(x .- median(x, dims=dims)), dims=dims)
+end
+# ============================================================================ #
 function comparison_plot(idir::AbstractString, obs_file::AbstractString,
     single_plot::Bool=true)
 
@@ -354,25 +358,38 @@ function comparison_plot(idir::AbstractString, obs_file::AbstractString,
 
     data, fips = load_all_data(idir)
 
+    # group and average repeats of the same parameter set (assuming 5 reps of 
+    # 10 sets...)
+    # data = dropdims(mean(reshape(data, 250, 33, 5, 10), dims=3), dims=3)
+
     # @show(sum(data.data["total"]), sum(obs))
 
     if single_plot
         h, ax = subplots(1,1)
 
-        cols = plt.rcParams["axes.prop_cycle"].by_key()["color"]
-        ax.set_prop_cycle("color", cols)
+        # cols = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+        # ax.set_prop_cycle("color", cols)
 
-        # ax.plot(data.data["total"])# ./ 10)
+        # # ax.plot(data.data["total"])# ./ 10)
 
-        for k in 1:33
-            mn = dropdims(mean(data[:,k,:], dims=2), dims=2)
-            sd = dropdims(std(data[:,k,:], dims=2), dims=2)
-            hp = ax.fill_between(0:249, mn .- sd, mn .+ sd, alpha=0.2)
-            ax.plot(0:249, mn, color=hp.get_facecolor()[1:3])
-        end
-        ax.set_prop_cycle("color", cols)
+        # for k in 1:33
+        #     mn = dropdims(mean(data[:,k,:], dims=2), dims=2)
+        #     sd = dropdims(std(data[:,k,:], dims=2), dims=2)
+        #     hp = ax.fill_between(0:249, mn .- sd, mn .+ sd, alpha=0.2)
+        #     ax.plot(0:249, mn, color=hp.get_facecolor()[1:3])
+        # end
+        # ax.set_prop_cycle("color", cols)
 
         # ax.plot(obs, "--")
+
+        d = dropdims(sum(data, dims=2), dims=2)
+        mn = dropdims(mean(d, dims=2), dims=2)
+        sd = dropdims(std(d, dims=2), dims=2)
+        hp = ax.fill_between(0:249, mn .- sd, mn .+ sd, alpha=0.2)
+        ax.plot(0:249, mn, color=hp.get_facecolor()[1:3], label="epicast")
+
+        ax.plot(0:249, dropdims(sum(obs, dims=2), dims=2), "--", color="black",
+            label="observed")
 
         ax.spines["right"].set_visible(false)
         ax.spines["top"].set_visible(false)
@@ -380,6 +397,7 @@ function comparison_plot(idir::AbstractString, obs_file::AbstractString,
         ax.set_xlabel("Simulation day (0 = 2020-09-13)", fontsize=14)
         ax.set_ylabel("Newly exposed per day", fontsize=14)
 
+        ax.legend(frameon=false, fontsize=14)
         h.tight_layout()
 
     else
@@ -388,12 +406,14 @@ function comparison_plot(idir::AbstractString, obs_file::AbstractString,
         h.set_size_inches((12,12))
 
         for k in 1:33
-            # mn = dropdims(mean(data[:,k,:], dims=2), dims=2)
-            # sd = dropdims(std(data[:,k,:], dims=2), dims=2)
-            # hp = ax[k].fill_between(0:249, mn .- sd, mn .+ sd, alpha=0.2)
-            # ax[k].plot(0:249, mn, color=hp.get_facecolor()[1:3])
+            mn = dropdims(mean(data[:,k,:], dims=2), dims=2)
+            sd = dropdims(std(data[:,k,:], dims=2), dims=2)
+            # mn = dropdims(median(data[:,k,:], dims=2), dims=2)
+            # sd = dropdims(mad(data[:,k,:], dims=2), dims=2)
+            hp = ax[k].fill_between(0:249, mn .- sd, mn .+ sd, alpha=0.2)
+            ax[k].plot(0:249, mn, color=hp.get_facecolor()[1:3])
 
-            ax[k].plot(0:249, data[:,k,:], color="C0")
+            # ax[k].plot(0:249, data[:,k,:], color="C0")
 
             ax[k].plot(obs[:,k], color="C1")
 
@@ -417,5 +437,97 @@ function comparison_plot(idir::AbstractString, obs_file::AbstractString,
 end
 # ============================================================================ #
 params_from_string(str::AbstractString) = parse.(Float64, split(str, r"\s+"))
+# ============================================================================ #
+function posterior_plot(ifile::AbstractString, cnty_file::AbstractString,
+    odir::AbstractString="")
+
+    params = npzread(ifile)
+
+    cnty_data = readdlm(cnty_file, ' ', Int)
+
+    names = Vector{String}(undef, 70)
+    names[1:4] .= ["p_trans", "p_asymp", "rel_trans_asymp", "withdrawal_scale"]
+
+    xlim = Vector{Tuple{Float64,Float64}}(undef, 70)
+    xlim[1:4] .= [(0.0,0.5),(0.0,1.0),(0.0,1.0),(0.0,2.0)]
+
+    for k in 1:size(cnty_data, 1)
+        names[4 + k] = string(cnty_data[k,1]) * "_iisf"
+        xlim[4 + k] = (0.1, 1.05)
+        names[4 + k + 33] = string(cnty_data[k,1]) * "_immune"
+        xlim[4 + k+ 33] = (0.0, 0.55)
+    end
+
+    for (k, name) in enumerate(names)
+        h, ax = subplots(1,1)
+        ax.hist(params[:,k], bins=50)
+
+        ax.spines["right"].set_visible(false)
+        ax.spines["top"].set_visible(false)
+
+        ax.set_ylabel("# of occurances", fontsize=14)
+        ax.set_xlabel(name * " value", fontsize=14)
+
+        # ax.set_title("$(name) posterior (1000 samples)", fontsize=16)
+
+        if !any(isnan, xlim[k])
+            ax.set_xlim(xlim[k]...)
+        end
+
+        if !isempty(odir)
+            h.savefig(joinpath(odir, "posteriors", name * "_posterior.pdf"))
+            close(h)
+        end
+    end
+
+    return nothing
+end
+# ============================================================================ #
+function comparison_plot2(idir::AbstractString, obs_file::AbstractString)
+    
+    obs = dropdims(sum(npzread(obs_file), dims=1), dims=1)
+    data, fips = load_all_data(idir)
+
+    data = dropdims(mean(reshape(data, 250, 33, 5, 10), dims=3), dims=3)
+    data = dropdims(sum(data, dims=1), dims=1)
+
+    ks = sortperm(obs, rev=true)
+    data .= data[ks,:]
+    fips .= fips[ks]
+    obs .= obs[ks]
+
+    h, ax = subplots(1,1)
+
+    h.set_size_inches((12,6))
+
+    for k = 1:33
+
+        bar_lab = k == 1 ? "observed" : nothing
+        dot_lab = k == 1 ? "epicast" : nothing
+        
+        ax.bar(k, obs[k], 0.9, color="C0", label=bar_lab)
+
+        ax.plot(fill(k, size(data,2)), data[k,:], ".", color="black",
+            markersize=12, label=dot_lab)
+
+    end
+
+    ax.spines["right"].set_visible(false)
+    ax.spines["top"].set_visible(false)
+
+    ax.set_xticks(1:33, fips, rotation=45)
+    ax.set_ylabel("Total infections", fontsize=14)
+    ax.set_yscale("log")
+
+    ax.set_ylim(1, ax.get_ylim()[2])
+    ax.set_xlim(0, 34)
+
+    ax.legend(frameon=false, fontsize=14)
+
+    h.tight_layout()
+
+    return h, ax
+
+end
 # ============================================================================ #
 end # module EpicastCalibrate
