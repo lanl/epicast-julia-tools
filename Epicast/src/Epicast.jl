@@ -1079,6 +1079,29 @@ function counts_by(data::Vector{Vector{AgentTransition}}, ::Val{F}, vals::Set{T}
     return out
 end
 # ============================================================================ #
+function plot_infection_src2(ifile::AbstractString, by_day::Bool=true)
+
+    data = group_by_timestep(read_eventfile(EventData, ifile).events,
+        filter=x->x.context<0xff, by_day=by_day)
+
+    counts = counts_by(data, Val(:context), Set(0x00:0x0b))
+
+    ctx_map = get_ctx_transition_map()
+
+    colors = map(col -> (red(col), green(col), blue(col)),
+        distinguishable_colors(length(counts))
+    )
+
+    h, ax = subplots(1,1)
+    for (k,x) in enumerate(0x00:0x0b)
+        ax.plot(counts[x], label="$(ctx_map[x])", color=colors[k])
+    end
+
+    ax.legend()
+
+    return h, ax
+end
+# ============================================================================ #
 function number_in_hospital(data::Vector{AgentTransition})
     tmp = Dict{UInt64,Vector{Int}}()
     for evt in data
