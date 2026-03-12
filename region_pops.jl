@@ -43,6 +43,13 @@ function region_list_to_pop(regions, region_pops, region_states)
     return Dict("population" => pop, "proportion of US population" => prop, "geography" => sort(states))
 end
 
+function add_states!(summary_dict, states, state_pops)
+    summary_dict["population"] += sum(map(s -> state_pops[s][1], states))
+    summary_dict["proportion of US population"] += sum(map(s -> state_pops[s][2], states))
+    tmp = summary_dict["geography"]
+    summary_dict["geography"] = sort(vcat(tmp, states))
+end
+
 function write_toml(data, filepath)
     open(filepath, "w") do f
         TOML.print(f, data)
@@ -60,16 +67,19 @@ function main()
 
     all_tracts, all_pop = UrbanPop.all_tract_data("/vast/home/jkitson/shared/input_data/urbanpop_v2/")
     offsets = get_state_offsets(all_tracts .% UInt , all_pop .% UInt)
+    total_pop = sum(all_pop)
+
     state_pops = Dict()
     for i in range(1, 51)
         (state, offset, pop) = offsets[i, :]
-        state_pops[state .% Int] = pop .% Int
+        tmp = pop .% Int
+        state_pops[state .% Int] = (tmp, tmp / total_pop)
     end
+    #println(state_pops)
 
-    total_pop = sum(all_pop)
     region_pops = Dict()
     for (k, v) in region_states
-        tmp = sum(map(s -> state_pops[s], v))
+        tmp = sum(map(s -> state_pops[s][1], v))
         region_pops[k] = (tmp, tmp / total_pop)
     end
 
@@ -81,6 +91,10 @@ function main()
 
     eighth = region_list_to_pop([6], region_pops, region_states)
     write_toml(eighth, "eighth_us.toml")
+
+    sixteenth = region_list_to_pop([7], region_pops, region_states)
+    add_states!(sixteenth, [27], state_pops)
+    write_toml(sixteenth, "sixteenth_us.toml")
 end
 
 main()
