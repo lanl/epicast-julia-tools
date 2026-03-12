@@ -1,0 +1,26 @@
+name = "EpicastCalibrate"
+uuid = "8bfefec5-fe69-4f90-91d3-4c96ead977e6"
+version = "0.1.0"
+authors = ["Scottie Alexander <palexander@lanl.gov>"]
+
+[deps]
+DelimitedFiles = "8bb1440f-4735-579b-a4ab-409b98df4dab"
+Distances = "b4f34e82-e78d-54a5-968a-f98e89d6e8f7"
+Epicast = "cbb96616-a3d1-4d5e-a40b-9319cdaf6efd"
+NPZ = "15e1cf62-19b3-5cfa-8e77-841668bca605"
+PyPlot = "d330b81b-6aea-500a-939a-2ce795aea3ee"
+Sobol = "ed01d8cd-4d21-5b2a-85b4-cc3bdc58bad4"
+Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+TOML = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
+
+[sources]
+Epicast = {path = "/Users/palexander/Documents/emerge+radium/code/julia-packages/Epicast"}
+
+[compat]
+DelimitedFiles = "1.9.1"
+Distances = "0.10.12"
+NPZ = "0.4.3"
+PyPlot = "2.11.6"
+Sobol = "1.5.0"
+Statistics = "1.11.1"
+TOML = "1.0.3"
