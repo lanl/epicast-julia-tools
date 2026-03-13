@@ -9,6 +9,9 @@ using DataFrames
 using CSV
 using Base
 using DelimitedFiles
+using Glob
+using TOML
+using JSON
 # ============================================================================ #
 function parse_args(args)
     s = ArgParseSettings()
@@ -38,7 +41,13 @@ end
 # ============================================================================ #
 fear_cols = Dict(
     "total" => ("total", "case_counts"),
-    "mentalstate_fear-disease" => ("total", "fear"),
+    "mentalstate_fear-disease" => ("total", "pro_mitigation"),
+    "mentalstate_fear-mitigation" => ("total", "anti_mitigation"),
+    "status_prodomal" => ("total", "symptomatic"),
+    "status_pox" => ("total", "asymptomatic"),
+    "status_latent" => ("total", "presymptomatic"),
+    "status_immune" => ("total", "immune"),
+    "mentalstate_fear-mitigation" => ("total", "anti_mitigation"),
     "behavior_withdrawn-spont" => ("total", "withdrawn_spont"),
     "behavior_withdrawn-sick" => ("total", "withdrawn_sick"),
     "behavior_withdrawn-hosp" => ("total", "withdrawn_hosp"),
@@ -62,12 +71,24 @@ function to_df(data::Epicast.RunData;
 end
 # ============================================================================ #
 function main(args)
-    bin_files = map(id -> read_bins(args["in-dir"], id), readdir(args["in-dir"]))
+    in_dir = args["in-dir"]
+    bin_files = glob("$in_dir/*/*.bin")
     for f in bin_files
         if f != nothing
             println("Reading $f")
+            cur_dir = dirname(f)
+            (run, ext) = splitext(basename(f))
             rd = Epicast.read_runfile(f)
             df = to_df(rd)
+
+            f_toml = "$(cur_dir)/$(run)_used_params.toml"
+            toml = TOML.parsefile(f_toml)
+            log = JSON.Parser.parsefile("$(cur_dir)/$(run)_log.json")
+            m = match(r"social_data_dir=\\\"([\w\/]+)\\\" ",
+                      log["cmd-string"])
+            if m != nothing
+                toml["social_data_dir"] = m[1]
+            end
 
             out_dir = args["out-dir"]
             if out_dir == ""
@@ -76,9 +97,17 @@ function main(args)
 
             f_csv = joinpath(out_dir,
                     basename(replace(f, r".bin" => ".csv")))
-            
+
             println("  Saving CSV version to $f_csv")
             CSV.write(f_csv, df)
+
+            #m = match(r"run_([0-9]+)", f_toml)
+            #if m != nothing
+            #    f_toml = "run_$(m[1])_used_params.toml"
+            #end
+            open(joinpath(out_dir, basename(f_toml)), "w") do io
+                TOML.print(io, toml)
+            end
         end
     end
 end
