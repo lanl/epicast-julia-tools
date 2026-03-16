@@ -41,18 +41,18 @@ end
 # ============================================================================ #
 fear_cols = Dict(
     "total" => ("total", "case_counts"),
-    "mentalstate_fear-disease" => ("total", "pro_mitigation"),
-    "mentalstate_fear-mitigation" => ("total", "anti_mitigation"),
-    "status_prodomal" => ("total", "symptomatic"),
-    "status_pox" => ("total", "asymptomatic"),
-    "status_latent" => ("total", "presymptomatic"),
+    "attitude_anti-mitigation" => ("total", "anti_mitigation"),
+    "attitude_pro-mitigation" => ("total", "pro_mitigation"),
+    "status_susceptible" => ("total", "susceptible"),
+    "status_presymptomatic" => ("total", "presymptomatic"),
+    "status_asymptomatic" => ("total", "asymptomatic"),
+    "status_symptomatic" => ("total", "symptomatic"),
     "status_immune" => ("total", "immune"),
-    "mentalstate_fear-mitigation" => ("total", "anti_mitigation"),
-    "behavior_withdrawn-spont" => ("total", "withdrawn_spont"),
+    "behavior_withdrawn-fear" => ("total", "withdrawn_spont"),
     "behavior_withdrawn-sick" => ("total", "withdrawn_sick"),
     "behavior_withdrawn-hosp" => ("total", "withdrawn_hosp"),
-    "broadcaster_fear-spreading" => ("media_broadcaster", "broadcaster_spreading"),
-    "broadcaster_fear-countering" => ("media_broadcaster", "broadcaster_countering"),
+    #"broadcaster_fear-spreading" => ("media_broadcaster", "broadcaster_spreading"),
+    #"broadcaster_fear-countering" => ("media_broadcaster", "broadcaster_countering"),
 )
 total_and_new = Dict(
     "" => Epicast.total_cases,
@@ -70,6 +70,35 @@ function to_df(data::Epicast.RunData;
     return DataFrames.DataFrame(table_like)
 end
 # ============================================================================ #
+# using OrderedCollections   # preserves order, useful for debugging
+
+"""Parse a TOML file while ignoring any later duplicate keys."""
+function clean_toml_keep_first(path::String)
+    # We’ll read the file line‑by‑line, build a new string without repeats.
+    seen = Set{String}()                 # keys we have already kept
+    keep = String[]                      # lines that survive
+    for line in eachline(path)
+        # Very naive key detection – works for simple “key = value” lines.
+        # If you need full TOML syntax (tables, arrays‑of‑tables, etc.) you’ll have
+        # to use a proper tokenizer or a more sophisticated regex.
+        m = match(r"^\s*([A-Za-z0-9_-]+)\s*=", line)
+        if m === nothing
+            push!(keep, line)            # comment, blank line, table header, etc.
+        else
+            key = m.captures[1]
+            if key in seen
+                @debug "Dropping duplicate key `$key`"
+                continue                # skip this line
+            else
+                push!(keep, line)
+                push!(seen, key)
+            end
+        end
+    end
+    cleaned = join(keep, "\n")
+    return cleaned
+end
+# ============================================================================ #
 function main(args)
     in_dir = args["in-dir"]
     bin_files = glob("$in_dir/*/*.bin")
@@ -78,17 +107,29 @@ function main(args)
             println("Reading $f")
             cur_dir = dirname(f)
             (run, ext) = splitext(basename(f))
-            rd = Epicast.read_runfile(f)
+
+            rd = nothing
+            try
+                rd = Epicast.read_runfile(f)
+            catch e
+                println("  Error reading $f")
+                continue
+            end
+                
             df = to_df(rd)
 
             f_toml = "$(cur_dir)/$(run)_used_params.toml"
-            toml = TOML.parsefile(f_toml)
-            log = JSON.Parser.parsefile("$(cur_dir)/$(run)_log.json")
-            m = match(r"social_data_dir=\\\"([\w\/]+)\\\" ",
-                      log["cmd-string"])
-            if m != nothing
-                toml["social_data_dir"] = m[1]
-            end
+            # EpiCast parameter files currently have some duplicates, we take the first value
+            # though they should all be the same
+            cleaned = clean_toml_keep_first(f_toml)
+            toml = TOML.parse(cleaned)
+
+            #log = JSON.parsefile("$(cur_dir)/$(run)_log.json")
+            #m = match(r"social_data_dir=\\\"([\w\/]+)\\\" ",
+            #          log["cmd-string"])
+            #if m != nothing
+            #    toml["social_data_dir"] = m[1]
+            #end
 
             out_dir = args["out-dir"]
             if out_dir == ""
