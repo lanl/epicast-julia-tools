@@ -2,7 +2,7 @@
 
 import Pkg
 
-Pkg.activate("Epicast")
+Pkg.activate("EpicastWorkspace")
 using ArgParse
 using Epicast
 using DataFrames
@@ -107,6 +107,8 @@ function main(args)
             println("Reading $f")
             cur_dir = dirname(f)
             (run, ext) = splitext(basename(f))
+            print(cur_dir)
+            prefix = "$(basename(cur_dir))_"
 
             rd = nothing
             try
@@ -115,7 +117,7 @@ function main(args)
                 println("  Error reading $f")
                 continue
             end
-                
+
             df = to_df(rd)
 
             f_toml = "$(cur_dir)/$(run)_used_params.toml"
@@ -137,7 +139,7 @@ function main(args)
             end
 
             f_csv = joinpath(out_dir,
-                    basename(replace(f, r".bin" => ".csv")))
+                    prefix * basename(replace(f, r".bin" => ".csv")))
 
             println("  Saving CSV version to $f_csv")
             CSV.write(f_csv, df)
@@ -146,7 +148,7 @@ function main(args)
             #if m != nothing
             #    f_toml = "run_$(m[1])_used_params.toml"
             #end
-            open(joinpath(out_dir, basename(f_toml)), "w") do io
+            open(joinpath(out_dir, prefix * basename(f_toml)), "w") do io
                 TOML.print(io, toml)
             end
         end
