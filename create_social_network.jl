@@ -2,7 +2,7 @@
 
 import Pkg
 
-Pkg.activate("UrbanPop")
+Pkg.activate("EpicastWorkspace")
 using ArgParse
 using UrbanPop
 using Graphs
