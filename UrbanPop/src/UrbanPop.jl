@@ -13,7 +13,7 @@ module UrbanPop
 
 using Mmap, SHA
 
-using Arrow, Tables, Printf, Query
+using Parquet, Arrow, Tables, Printf, Query
 
 using EpicastTables
 
@@ -25,9 +25,9 @@ struct Agent
 
     household_id::UInt32
     person_id::UInt32
-    
+
     household_income::UInt32
-    
+
     person_commute_time::Int16
 
     person_naics::UInt16
@@ -70,7 +70,7 @@ function Agent()
 end
 # ---------------------------------------------------------------------------- #
 Base.show(io::IO, ::MIME"text/plain", agents::AbstractVector{Agent}) = Base.show(stdout, agents)
-function Base.show(io::IO, agents::AbstractVector{Agent})    
+function Base.show(io::IO, agents::AbstractVector{Agent})
     for agent in agents
         Base.show(IOContext(io, :compact => true), agent)
         print(io, "\n")
@@ -97,9 +97,9 @@ function copy_agent(a::Agent; args...)
 
         get(args, :household_id, a.household_id),
         get(args, :person_id, a.person_id),
-        
+
         get(args, :household_income, a.household_income),
-        
+
         get(args, :person_commute_time, a.person_commute_time),
 
         get(args, :person_naics, a.person_naics),
@@ -183,7 +183,7 @@ function read_header(ifile::AbstractString)
         nagent = Base.read(io, UInt64)
         nbytes = Base.read(io, UInt16)
         ntract = Base.read(io, UInt16)
-        nhousehold = Base.read(io, UInt32) 
+        nhousehold = Base.read(io, UInt32)
         return nagent, nbytes, ntract, nhousehold
     end
 end
@@ -449,7 +449,7 @@ function person_naics(x::AbstractString, employment::AbstractString)
     out = 0
     if naics != nothing
         if 0 < naics < 10^(NAICS_DIGITS-1)
-            # make sure we have all NAICS_DIGITS digits, trailing 0's do NOT 
+            # make sure we have all NAICS_DIGITS digits, trailing 0's do NOT
             # change the meaning of NAICS codes
             out = naics * 10^((NAICS_DIGITS-1) - floor(Int,log10(naics)))
         else
@@ -467,12 +467,12 @@ end
 function parse_pumsid(x::AbstractString)
     pums, hh = split(x, '-')
     # pums id format: yyyyXXddddd...
-    # where yyyy is 4-digit year, XX is 00 (<2018) or HU/GQ (>=2018), and ddd... 
+    # where yyyy is 4-digit year, XX is 00 (<2018) or HU/GQ (>=2018), and ddd...
     # is the "person serial number"
     return parse(UInt64, pums[vcat(1:4, 7:length(pums))]), parse(UInt64, hh)
 end
 # ============================================================================ #
-function convert_row(row::Tables.ColumnsRow, hh_count::UInt32, 
+function convert_row(row::Tables.ColumnsRow, hh_count::UInt32,
     last_hh_id::UInt64)
 
     # we are parsing h_id (not p_id) as h_id ends with '-' and a household id,
@@ -495,8 +495,8 @@ function convert_row(row::Tables.ColumnsRow, hh_count::UInt32,
 
         UInt8(row[:hh_size]),
         household_type(row[:hh_dwg]),
-        UInt8(row[:hh_age]),        
-        household_kids(row[:hh_has_kids]),        
+        UInt8(row[:hh_age]),
+        household_kids(row[:hh_has_kids]),
         UInt8(row[:hh_nb_wrks]),
         UInt8(row[:hh_nb_non_wrks]),
         UInt8(row[:hh_nb_adult_wrks]),
@@ -519,12 +519,10 @@ function convert_row(row::Tables.ColumnsRow, hh_count::UInt32,
     ), hh_count, hh_id
 end
 # ============================================================================ #
-function convert_feather(ifile::AbstractString, hh_count::UInt32, 
+function convert_feather(tbl, hh_count::UInt32,
     last_hh_id::UInt64)
 
-    tbl = Arrow.Table(ifile)
-
-    # make sure all agents from a given household appear together (i.e. in a 
+    # make sure all agents from a given household appear together (i.e. in a
     # contiguous slice)
     @assert(is_contiguous(tbl[:h_id]), "Households are not grouped in table \"$(ifile)\"")
 
@@ -538,10 +536,18 @@ function convert_feather(ifile::AbstractString, hh_count::UInt32,
     return data, hh_count, last_hh_id
 end
 # ============================================================================ #
-function convert_feather_dir(idir::AbstractString, odir::AbstractString)
-    files = find_files(idir, r".*\.feather$")
+function convert_feather_dir(idir::AbstractString, odir::AbstractString,
+    extension::AbstractString = "feather")
+
+    file_regex = Regex(".*\\." * extension * "\$")
+    files = find_files(idir, file_regex)
+
+    fip_regex = Regex(".*symp_(\\d+)\\." * extension * "\$")
+    if extension == "parquet"
+        fip_regex = Regex(".*syp_(\\d+)\\." * extension * "\$")
+    end
     fips = map(files) do x
-        m = match(r".*syp_(\d+)\.feather$", x)
+        m = match(fip_regex, x)
         @assert(m != nothing, "Failed to parse filename \"$(x)\"")
 
         # FIPS code is SSCCC (s = state, c = county)
@@ -559,17 +565,24 @@ function convert_feather_dir(idir::AbstractString, odir::AbstractString)
 
     # we keep a count of the total number households for assigning
     # state-unique household ids, the actual values get overwritten in the loop
-    # at the end of this function, but setting up unique ids in the 
+    # at the end of this function, but setting up unique ids in the
     # convert_feather() loops allows them to be easily changed at the end
     hh_count = UInt32(0)
-    
+
     # place holder so we know when a "new" household should be counted
     last_hh_id = UInt64(0)
 
     agents = Vector{Agent}(undef, 0)
     N = length(files)
     for (k, file) in enumerate(files)
-        data, hh_count, last_hh_id = convert_feather(file, hh_count, last_hh_id)
+        tbl = nothing
+        println(file)
+        if extension == "parquet"
+            tbl = Parquet.read_parquet(file)
+        else
+            tbl = Arrow.Table(file)
+        end
+        data, hh_count, last_hh_id = convert_feather(tbl, hh_count, last_hh_id, )
         append!(agents, data)
         println("[DONE]: $(k)/$(N) \"$(basename(file))\"")
     end
@@ -590,7 +603,7 @@ function convert_feather_dir(idir::AbstractString, odir::AbstractString)
         hhid_last = agents[k].household_id
 
         agents[k] = copy_agent(agents[k],
-            person_id = person_id, 
+            person_id = person_id,
             household_id = hhid
         )
     end
@@ -660,7 +673,7 @@ function write_tract_file(ifile::AbstractString)
         end
     end
 
-    # don't forget the last one... (don't subtract 1 as length(raw) is not an 
+    # don't forget the last one... (don't subtract 1 as length(raw) is not an
     # index, unlike <k> in the above loop)
     data[idx] = Tract(last_idx, length(raw) - last_idx, last_tract)
 
@@ -685,7 +698,7 @@ function read_tract_file(ifile::AbstractString)
         n_tract = read(io, UInt64)
         tract_size = read(io, UInt64)
         @assert(tract_size == sizeof(Tract), "tract struct size mismatch")
-        
+
         return mmap(io, Vector{Tract}, (n_tract,), grow=false, shared=false)
     end
 end
@@ -813,7 +826,7 @@ function Base.println(io::IO, t::TractMarginals, n::Integer=0)
     print(io, @sprintf("%5d", n), " ", @sprintf("%5d", t.n_agent), " ", 0, " ",
         county_fips, " ",
         @sprintf("%6d", t.fips_code - (county_fips * TRACT2COUNTY)), " ")
-    
+
     hh_size = zeros(Int, 7)
     hh_size[1:6] .= t.household_size[1:6]
     hh_size[7] = sum(t.household_size[7:end-1])
@@ -870,10 +883,10 @@ function tract_marginals(ifile::AbstractString, agents_by_size::Bool=false)
         tmp.age[age_index] += 1
 
         hh_id = Int(raw[k].household_id)
-        
+
         hh_index = household_size(raw[k])
         if agents_by_size
-            # add hosuehold size (count of agents per hh size, not hh count)        
+            # add hosuehold size (count of agents per hh size, not hh count)
             tmp.household_size[hh_index] += 1
         elseif last_hh_id != hh_id
             tmp.household_size[hh_index] += 1
@@ -900,7 +913,7 @@ function write_tract_marginals(idir::AbstractString, odir::AbstractString)
         m == nothing && error("failed to parse filename $(file)")
         ofile = joinpath(odir, m[1] * ".dat")
         tmp = sort!(collect(values(tract_marginals(file, false))), lt=(x,y)->x.fips_code<y.fips_code)
-        
+
         open(ofile, "w") do io
             println(io, length(tmp))
             foreach((x,c)->println(io, x, c), tmp, n:(n+length(tmp)-1))
