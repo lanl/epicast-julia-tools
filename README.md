@@ -1,61 +1,110 @@
-# epicast-utils
-A collection of Julia packages for wrangeling data related to the [EpiCast](https://gitlab.lanl.gov/palexander/epicast) epidemic simulator. Released under O4913.
+# epicast-julia-tools
+A collection of Julia packages for wrangeling data related to the [Epicast](https://arxiv.org/abs/2504.03604) epidemic simulator.
 
-## UrbanPop
-Utilities for converting UrbanPop data stored as Apache feather files into the EpiCast internal tract and agent DB formats.
+## Install
 
-## Workerflow
-Utilities for converting ASCII workerflow sparse matricies based on tract "ids" to a binary representation based on FIPS codes.
+A smoother installation expierence is stil a wip. For now you need to install each sub-module that you would like to use *AFTER* installing it's dependencies. For example:
 
-## Checkpoint
-Utilities for working with and verifying EpiCast checkpoint files.
-
-## EpicastGeoplot
-
-### Loading data from a runfile
 ```julia
-using EpicastGeoplot; const EG = EpicastGeoplot
+import Pkg
 
-ifile = "<path_to_a_count_based_runfile>"
+# NOTE: this installs everything into the current env, activate a new project
+# etc. as you like before installing
+all_submodules = [
+    "EpicastTables",  # required by Epicast, EpicastPlot, EpicastGeoplot
+    "Epicast",        # required by EpicastPlot, EpicastGeoplot
+    "EpicastPlot",    # optional
+    "EpicastGeoplot", # optional, but very useful for map visualizations
+    "PlotHelpers"     # optional
+]
 
-# ===== load all columns
-data = EG.geoplot_data(CountyPolygon, ifile)
-
-# ===== load a single, specific column by name
-data = EG.geoplot_data(CountyPolygon, ifile, "total")
-data = EG.geoplot_data(CountyPolygon, ifile, "age_4")
-
-# ===== load a group of columns by prefix
-data = EG.geoplot_data(CountyPolygon, ifile, "age_")
-data = EG.geoplot_data(CountyPolygon, ifile, "status_")
-
-# ===== load a group of columns by regex
-# all columns that end in _age4
-data = EG.geoplot_data(CountyPolygon, ifile, r".*_age4")
-EG.column_names(data)
-
-# all columns that are a age-based breakdown
-data = EG.geoplot_data(CountyPolygon, ifile, r"(?:age_\d|.*_age\d)")
-EG.column_names(data)
+for submod in all_submodules
+    Pkg.add(url="https://github.com/lanl/epicast-julia-tools", subdir=submod)
+end
 ```
 
-***NOTE***: see [EpicastGeoplot.case_count!()](./EpicastGeoplot/src/EpicastGeoplot.jl#L58) for default normalization scheme.
+## Sub-modules
 
-### Plotting geo-animation
+### EpicastTables
+
+Basic table-like data structure for storing `time x location x variable` count data as well as 1d and 2d variants. 
+
+### Epicast
+
+Basic I/O and preprocessing routines for data in either count or event format. Requires `EpicastTables`.
+
+### EpicastPlot
+
+Basic plotting of timeseries data. Requires `Epicast` and `EpicastTables`.
+
+### PlotHelpers
+
+Basic plotting helper functions that are occationally useful. The functions provided herein are not specific to Epicast or used by other modules in this repository, but they are useful for constructing more complex figures such as those appearing in recent Epicast-related publications (e.g., [the Epicast 2.0 paper](https://arxiv.org/abs/2504.03604)).
+
+### EpicastGeoplot
+
+More feature-rich plotting of timeseries and geographic (i.e., map) data. Requires `Epicast` and `EpicastTables`.
+
+## Example usage
 ```julia
-ifile = "<path_to_a_count_based_runfile>"
+using Epicast, EpicastGeoplot; const EG = EpicastGeoplot
 
-# load all columns
-data = EG.geoplot_data(CountyPolygon, ifile)
+ifile = "<path_to_a_count_or_event_file>"
 
-# plot total infecetions per 100k residents
-h, ax = EG.make_figure(data, "total")
+# name of the column to preprocess (we're only going to do one here)
+col_name = "total"
 
-# save animation as an mp4: note <ofile> is a kwarg
-h, ax = EG.make_figure(data, "hospitalized_age4",
-    ofile = splitext(ifile)[1] * "-county.mp4")
+# gist: load data, aggregate to County level, apply 7-day moving average
+# convert to new counts per day, normalize counts by resident population of each
+# county / 100k
+data = EG.geoplot_data(
+    Epicast.preprocess!(
+        # aggregate count data at the county level
+        Epicast.aggregate(County, Epicast.read_rundata(ifile)),
+        col_name,
+        smooth=true, # apply 7-day moving average
+        diff=true,   # convert cumulative counts to "new per day"
+
+        # function to "get denominator" for normalizing data
+        # x is an Epicast.Rundata object, var is a column name
+        get_denom = (x,var) -> Epicast.demographics(x, var) .* 1e-5
+    )
+)
+
+# make sure the units given by the y-label reflect the normalization performed
+# above
+EG.make_figure(data, "total", ylab="New cases per 100k residents")
+
+# or to save the animation to an mp4 iff ffmpeg is on the PATH:
+# EG.make_figure(data, "total", ofile = "./test.mp4")
+
 ```
 
 # Usage
 
-Basic docs go here...
+More docs go here...
+
+# Release
+
+This software has been approved for open source release and has been assigned O4913.
+
+# Copyright
+
+© 2025. Triad National Security, LLC. All rights reserved.
+
+This program was produced under U.S. Government contract 89233218CNA000001 for Los Alamos National Laboratory (LANL), which is operated by Triad National Security, LLC for the U.S. Department of Energy/National Nuclear Security Administration. All rights in the program are reserved by Triad National Security, LLC, and the U.S. Department of Energy/National Nuclear Security Administration. The Government is granted for itself and others acting on its behalf a nonexclusive, paid-up, irrevocable worldwide license in this material to reproduce, prepare. derivative works, distribute copies to the public, perform publicly and display publicly, and to permit others to do so.
+
+# License
+
+This program is Open-Source under the BSD-3 License.
+
+Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
